@@ -1,12 +1,12 @@
 # Setting Up the Pico SDK on Linux for PicoMite Development
 
-This guide walks you through setting up the Raspberry Pi Pico SDK on a Linux system for **PicoMite** development. By the end, you'll have a working environment to compile and flash firmware to your Raspberry Pi Pico.
+This guide walks you through setting up the Raspberry Pi Pico SDK on a Linux system for **PicoCalc** development. By the end, you'll have a working environment to compile and flash firmware to your Raspberry Pi Pico on PicoCalc.
 
 ## Prerequisites
 Before getting started, make sure you have the following:
 
 - A Linux system (Ubuntu, Debian, etc.)
-- Raspberry Pi Pico or compatible board
+- Raspberry Pi Pico 
 - USB cable for flashing firmware
 - Basic familiarity with the terminal
 
@@ -91,7 +91,8 @@ minicom -b 115200 -o -D /dev/ttyACM0
 Press **Ctrl+A, then Z**, and select **Quit** when finished.
 
 ## Conclusion
-You now have the Raspberry Pi Pico SDK set up on Linux and successfully flashed firmware onto your Pico. You can start developing and customizing firmware for **PicoMite** projects!
+You now have the Raspberry Pi Pico SDK set up on Linux and successfully flashed firmware onto your Pico. 
+You can start developing and customizing firmware for **PicoCalc** projects!
 
 For more details, refer to the official [Pico SDK documentation](https://github.com/raspberrypi/pico-sdk).
 

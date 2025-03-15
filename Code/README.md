@@ -1,5 +1,5 @@
 # Code 
-Here are all the patch codes of picocalc's factory program
+Here are all the patch codes of PicoCalc's factory program
 
 * PicoCalc_Fuzix_v1.0
 * PicoCalc_MP3Player_v0.5
