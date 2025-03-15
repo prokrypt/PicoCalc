@@ -1,0 +1,1914 @@
+diff --git a/samples/fatfs/source/mmc_pico_spi.c b/samples/fatfs/source/mmc_pico_spi.c
+index 58e633b..a5865bd 100644
+--- a/samples/fatfs/source/mmc_pico_spi.c
++++ b/samples/fatfs/source/mmc_pico_spi.c
+@@ -15,12 +15,14 @@
+ // see: https://qiita.com/Yukiya_Ishioka/items/6b5b6cb246f1d1e94461
+ 
+ #include "pico/stdlib.h"
+-#include "ws19804_c.h"
++#include <hardware/spi.h>
++#include <pico/stdio.h>
++#include "picocalc_c.h"
+ 
+-#define DEF_SPI_TX_PIN  11
+-#define DEF_SPI_RX_PIN  12
+-#define DEF_SPI_SCK_PIN 10
+-#define DEF_SPI_CSN_PIN 22
++#define DEF_SPI_TX_PIN  19
++#define DEF_SPI_RX_PIN  16
++#define DEF_SPI_SCK_PIN 18
++#define DEF_SPI_CSN_PIN 17
+ 
+ #define FCLK_FAST() { }
+ #define FCLK_SLOW() { }
+@@ -80,26 +82,57 @@ static volatile UINT Timer1, Timer2;        /* 1kHz decrement timer stopped at z
+ static BYTE CardType;   /* Card type flags */
+ 
+ 
++void HWReadSPI(unsigned char *buff, int cnt) {
++    spi_read_blocking(Pico_SD_SPI_MOD, 0xff, buff, cnt);
++}
++
++void HWSendSPI(const unsigned char *buff, int cnt) {
++    spi_write_blocking(Pico_SD_SPI_MOD, buff, cnt);
++}
+ 
+ /*-----------------------------------------------------------------------*/
+ /* SPI controls (Platform dependent)                                     */
+ /*-----------------------------------------------------------------------*/
+ 
+ /* Initialize MMC interface */
+-static void init_spi (void)
++static void init_sd_spi (void)
+ {
++
++    //initilase GPIO ports
++    gpio_init(DEF_SPI_SCK_PIN );
++    gpio_init(DEF_SPI_TX_PIN);
++    gpio_init(DEF_SPI_RX_PIN);
++    gpio_put(DEF_SPI_SCK_PIN,0);
++    gpio_put(DEF_SPI_TX_PIN,0);
++    gpio_set_pulls(DEF_SPI_RX_PIN,true,false);
++
++    //set GPIO post function
++    gpio_set_function(DEF_SPI_SCK_PIN, GPIO_FUNC_SPI); // SCK
++    gpio_set_function(DEF_SPI_TX_PIN, GPIO_FUNC_SPI);  // TX
++    gpio_set_function(DEF_SPI_RX_PIN, GPIO_FUNC_SPI);  // RX
++
++    gpio_set_dir(DEF_SPI_SCK_PIN,GPIO_OUT);
++    gpio_set_dir(DEF_SPI_TX_PIN,GPIO_OUT);
++    gpio_set_dir(DEF_SPI_RX_PIN,GPIO_IN);
++
++
+     /* CS# */
+     gpio_init( DEF_SPI_CSN_PIN );
++    gpio_set_function(DEF_SPI_CSN_PIN, GPIO_FUNC_SIO);
+     gpio_set_dir( DEF_SPI_CSN_PIN, GPIO_OUT);
+ 
+     CS_HIGH();            /* Set CS# high */
+-    
++
++     //initalise SPI module
++    spi_init(Pico_SD_SPI_MOD, 250000);
++    spi_set_format(Pico_SD_SPI_MOD, 8, 0, 0, SPI_MSB_FIRST);
++
+     sleep_ms(10);
+ }
+ 
+ static BYTE rcvr_spi() {
+     BYTE buff;
+-    ws19804_read_blocking(0xff, &buff, 1);
++    HWReadSPI( &buff, 1);
+     return buff;
+ }
+ 
+@@ -109,12 +142,12 @@ static void rcvr_spi_multi (
+     UINT btr        /* Number of bytes to receive (even number) */
+ )
+ {
+-    ws19804_read_blocking(0xff, buff, btr);
++    HWReadSPI(buff, btr);
+ }
+ 
+ 
+ static void xmit_spi(BYTE buff) {
+-    ws19804_write_blocking(&buff, 1);
++    HWSendSPI(&buff, 1);
+ }
+ 
+ /* Send multiple byte */
+@@ -123,7 +156,7 @@ static void xmit_spi_multi (
+     UINT btx            /* Number of bytes to send (even number) */
+ )
+ {
+-    ws19804_write_blocking(buff, btx);
++    HWSendSPI(buff, btx);
+ }
+ 
+ 
+@@ -298,7 +331,7 @@ DSTATUS disk_initialize (
+ 
+ 
+     if (drv) return STA_NOINIT;         /* Supports only drive 0 */
+-    init_spi();                         /* Initialize SPI */
++    init_sd_spi();                         /* Initialize SPI */
+ 
+     if (Stat & STA_NODISK) return Stat; /* Is card existing in the soket? */
+ 
+diff --git a/samples/font/mono8x16/mono8x16.cpp b/samples/font/mono8x16/mono8x16.cpp
+index 0e322f2..317e79f 100644
+--- a/samples/font/mono8x16/mono8x16.cpp
++++ b/samples/font/mono8x16/mono8x16.cpp
+@@ -2,71 +2,127 @@
+ 
+ namespace mono8x16 {
+ 
+-static constexpr int W = 8;
+-static constexpr int H = 16;
+-static constexpr int CHAR_STRIDE = (W * H + 7) / 8;
++    static constexpr int W = 8;
++    static constexpr int H = 16;
++    static constexpr int CHAR_STRIDE = (W * H + 7) / 8;
+ 
+-void draw_char_rgb444(
+-    uint8_t *dest,
+-    int dest_stride,
+-    int dest_w,
+-    int dest_h,
+-    int x0,
+-    int y0,
+-    const char c,
+-    uint16_t color
+-) {
+-    if (c <= 0x20 || 0x80 <= c) return;
+-    const uint8_t *rd_ptr = bmp + (c - 0x20) * CHAR_STRIDE;
+-    for (int iy = 0; iy < H; iy++) {
+-        int y = y0 + iy;
+-        uint8_t pattern = *(rd_ptr++);
+-        if (0 <= y && y < dest_h) {
+-            for (int ix = 0; ix < W; ix++) {
+-                int x = x0 + ix;
+-                if ((pattern & 1) && 0 <= x && x < dest_w) {
+-                    int wr_index = dest_stride * y + x * 3 / 2;
+-                    if ((x & 1) == 0) {
+-                        dest[wr_index  ] = (color >> 4) & 0xff;
+-                        dest[wr_index+1] &= 0x0f;
+-                        dest[wr_index+1] |= (color << 4) & 0xf0;
++    void draw_char_rgb444(
++            uint8_t *dest,
++            int dest_stride,
++            int dest_w,
++            int dest_h,
++            int x0,
++            int y0,
++            const char c,
++            uint16_t color
++    ) {
++        if (c <= 0x20 || 0x80 <= c) return;
++        const uint8_t *rd_ptr = bmp + (c - 0x20) * CHAR_STRIDE;
++        for (int iy = 0; iy < H; iy++) {
++            int y = y0 + iy;
++            uint8_t pattern = *(rd_ptr++);
++            if (0 <= y && y < dest_h) {
++                for (int ix = 0; ix < W; ix++) {
++                    int x = x0 + ix;
++                    if ((pattern & 1) && 0 <= x && x < dest_w) {
++                        int wr_index = dest_stride * y + x * 3 / 2;
++                        if ((x & 1) == 0) {
++                            dest[wr_index] = (color >> 4) & 0xff; //高8位
++                            dest[wr_index + 1] &= 0x0f;
++                            dest[wr_index + 1] |= (color << 4) & 0xf0;//低4位
++                        } else {
++                            dest[wr_index] &= 0xf0;
++                            dest[wr_index] |= (color >> 8) & 0xf;//高4位
++                            dest[wr_index + 1] = color & 0xff;//低8位
++                        }
+                     }
+-                    else {
+-                        dest[wr_index  ] &= 0xf0;
+-                        dest[wr_index  ] |= (color >> 8) & 0xf;
+-                        dest[wr_index+1] = color & 0xff;
++                    pattern >>= 1;
++                }
++            }
++        }
++    }
++
++    void draw_string_rgb444(
++            uint8_t *dest,
++            int dest_stride,
++            int dest_w,
++            int dest_h,
++            int x0,
++            int y0,
++            const char *str,
++            uint16_t color
++    ) {
++        char c;
++        while ((c = *(str++)) != '\0') {
++            draw_char_rgb444(
++                    dest,
++                    dest_stride,
++                    dest_w,
++                    dest_h,
++                    x0,
++                    y0,
++                    c,
++                    color
++            );
++            x0 += W + 1;
++        }
++    }
++
++    void draw_char_rgb565(
++            uint8_t *dest,
++            int dest_stride,
++            int dest_w,
++            int dest_h,
++            int x0,
++            int y0,
++            const char c,
++            uint16_t color
++    ) {
++        if (c <= 0x20 || 0x80 <= c) return;
++        const uint8_t *rd_ptr = bmp + (c - 0x20) * CHAR_STRIDE;
++        for (int iy = 0; iy < H; iy++) {
++            int y = y0 + iy;
++            uint8_t pattern = *(rd_ptr++);
++            if (0 <= y && y < dest_h) {
++                for (int ix = 0; ix < W; ix++) {
++                    int x = x0 + ix;
++                    if ((pattern & 1) && 0 <= x && x < dest_w) {
++                        int wr_index = dest_stride * y + x * 2;  // 每个像素占2字节
++                        dest[wr_index   ] = (color >> 8) & 0xff;
++                        dest[wr_index + 1 ] = (color & 0xff);
++
+                     }
++                    pattern >>= 1;
+                 }
+-                pattern >>= 1;
+             }
+         }
+     }
+-}
+ 
+-void draw_string_rgb444(
+-    uint8_t *dest,
+-    int dest_stride,
+-    int dest_w,
+-    int dest_h,
+-    int x0,
+-    int y0,
+-    const char* str,
+-    uint16_t color
+-) {
+-    char c;
+-    while ((c = *(str++)) != '\0') {
+-        draw_char_rgb444(
+-            dest,
+-            dest_stride,
+-            dest_w,
+-            dest_h,
+-            x0,
+-            y0,
+-            c,
+-            color
+-        );
+-        x0 += W + 1;
++    void draw_string_rgb565(
++            uint8_t *dest,
++            int dest_stride,
++            int dest_w,
++            int dest_h,
++            int x0,
++            int y0,
++            const char *str,
++            uint16_t color
++    ) {
++        char c;
++        while ((c = *(str++)) != '\0') {
++            draw_char_rgb565(
++                    dest,
++                    dest_stride,
++                    dest_w,
++                    dest_h,
++                    x0,
++                    y0,
++                    c,
++                    color
++            );
++            x0 += W + 1;
++        }
+     }
+-}
++
+ 
+ }
+diff --git a/samples/font/mono8x16/mono8x16.hpp b/samples/font/mono8x16/mono8x16.hpp
+index b18fedc..764445a 100644
+--- a/samples/font/mono8x16/mono8x16.hpp
++++ b/samples/font/mono8x16/mono8x16.hpp
+@@ -29,6 +29,27 @@ void draw_string_rgb444(
+     uint16_t color
+ );
+ 
++
++    void draw_char_rgb565(
++            uint8_t *dest,
++            int dest_stride,
++            int dest_w,
++            int dest_h,
++            int x0,
++            int y0,
++            const char c,
++            uint16_t color
++    );
++     void draw_string_rgb565(
++            uint8_t *dest,
++            int dest_stride,
++            int dest_w,
++            int dest_h,
++            int x0,
++            int y0,
++            const char* str,
++            uint16_t color
++    );
+ };
+ 
+ #endif
+diff --git a/samples/v3/CMakeLists.txt b/samples/v3/CMakeLists.txt
+new file mode 100644
+index 0000000..56eccdd
+--- /dev/null
++++ b/samples/v3/CMakeLists.txt
+@@ -0,0 +1,65 @@
++cmake_minimum_required(VERSION 3.12)
++
++# Pull in PICO SDK (must be before project)
++set(PICO_SDK_PATH $ENV{PICO_SDK_PATH})
++include(${PICO_SDK_PATH}/pico_sdk_init.cmake)
++
++project(picocalc_nes C CXX ASM)
++set(CMAKE_C_STANDARD 11)
++set(CMAKE_CXX_STANDARD 17)
++
++# Initialize the SDK
++pico_sdk_init()
++
++add_executable(picocalc_nes)
++
++pico_generate_pio_header(picocalc_nes ${CMAKE_CURRENT_LIST_DIR}/picocalc.pio)
++
++set(SHAPONES_PATH ../../core)
++set(FATFS_PATH ../fatfs/source)
++
++target_sources(
++    picocalc_nes PRIVATE 
++    common.cpp
++    picocalc.cpp
++    i2ckbd.cpp
++    picocalc_nes.cpp
++    boot_menu.cpp
++    ${SHAPONES_PATH}/src/cpu.cpp
++    ${SHAPONES_PATH}/src/dma.cpp
++    ${SHAPONES_PATH}/src/input.cpp
++    ${SHAPONES_PATH}/src/interrupt.cpp
++    ${SHAPONES_PATH}/src/memory.cpp
++    ${SHAPONES_PATH}/src/ppu.cpp
++    ${SHAPONES_PATH}/src/apu.cpp
++    ${SHAPONES_PATH}/src/shapones.cpp
++    ${SHAPONES_PATH}/src/utils_std.cpp
++    ${FATFS_PATH}/ff.c
++    ${FATFS_PATH}/ffsystem.c
++    ${FATFS_PATH}/ffunicode.c
++    ${FATFS_PATH}/mmc_pico_spi.c
++    ../font/mono8x16/mono8x16.cpp
++    ../font/mono8x16/mono8x16_bmp.cpp
++)
++
++target_include_directories(
++    picocalc_nes PRIVATE
++    .
++    ${SHAPONES_PATH}/include
++    ${FATFS_PATH}
++    ../font/mono8x16
++)
++
++target_link_libraries(
++    picocalc_nes PRIVATE
++    pico_stdlib
++    hardware_pio
++    hardware_pwm
++    hardware_dma
++    hardware_irq
++    hardware_spi
++    hardware_i2c
++    pico_multicore
++)
++
++pico_add_extra_outputs(picocalc_nes)
+diff --git a/samples/v3/Makefile.sample.mk b/samples/v3/Makefile.sample.mk
+new file mode 100644
+index 0000000..61488a1
+--- /dev/null
++++ b/samples/v3/Makefile.sample.mk
+@@ -0,0 +1,38 @@
++.PHONY: all install clean
++
++REPO_DIR=$(shell pwd)
++SRC_DIR=.
++BUILD_DIR=build
++
++BIN_NAME=pico_nes_ws19804.uf2
++BIN=$(BUILD_DIR)/$(BIN_NAME)
++
++CORE_DIR=../../core
++FATFS_DIR=../fatfs/source
++
++SRC_LIST=\
++	$(wildcard $(SRC_DIR)/*.*) \
++	$(wildcard $(SRC_DIR)/../font/mono8x16/*.*) \
++	$(wildcard $(CORE_DIR)/src/*.*) \
++	$(wildcard $(CORE_DIR)/include/shapones/*.*)  \
++	$(wildcard $(FATFS_DIR)/*.*) 
++
++all: $(BIN)
++
++$(BIN): $(SRC_LIST) CMakeLists.txt
++	mkdir -p $(BUILD_DIR)
++	cd $(BUILD_DIR) \
++		&& cmake .. \
++		&& make -j
++	@echo "------------------------------"
++	@echo "UF2 File:"
++	@echo $(REPO_DIR)/$(BIN)
++	@ls -l $(REPO_DIR)/$(BIN)
++
++install: $(BIN)
++	sudo mkdir -p /mnt/e
++	sudo mount -t drvfs e: /mnt/e
++	cp $(BIN) /mnt/e/.
++
++clean:
++	rm -rf build
+diff --git a/samples/v3/boot_menu.cpp b/samples/v3/boot_menu.cpp
+new file mode 100644
+index 0000000..c34e5fe
+--- /dev/null
++++ b/samples/v3/boot_menu.cpp
+@@ -0,0 +1,174 @@
++#include "boot_menu.hpp"
++
++#include <string.h>
++
++#include "picocalc.hpp"
++#include "mono8x16.hpp"
++#include "common.hpp"
++
++#include "ff.h"
++#include "diskio.h"
++
++constexpr int MAX_FILES = 64;
++
++// enumerate NES files
++static int enum_files(FATFS *fs, char **fname_list, int *fsize_list);
++
++// show ROM select menu
++static int rom_select(int num_files, char **file_list);
++
++// load NES file
++static bool load_nes(const char *fname, int size);
++
++bool boot_menu() {
++    FATFS fs;
++    char *fname_list[MAX_FILES];
++    int fsize_list[MAX_FILES];
++    int num_files = enum_files(&fs, fname_list, fsize_list);
++    if (num_files <= 0) {
++        return false;
++    }
++
++    int index = rom_select(num_files, fname_list);
++
++    if ( ! load_nes(fname_list[index], fsize_list[index])) {
++        return false;
++    }
++
++    for (int i = 0; i < num_files; i++) {
++        free(fname_list[i]);
++    }
++    
++    return true;
++}
++
++static int enum_files(FATFS *fs, char **fname_list, int *fsize_list) {
++    char tmp[16];
++    int y = 20;
++    constexpr int x_result = 120;
++
++    DSTATUS dsts;
++    FRESULT fres;
++
++    clear_frame_buff();
++
++    // Init FatFS
++    draw_string(0, y, "Init FatFS"); update_lcd();
++    dsts = disk_initialize(0);
++    //dsts = STA_NOINIT;
++    if (dsts & STA_NOINIT) {
++        sprintf(tmp, "[NG] code=0x%x", (int)dsts);
++        draw_string(x_result, y, tmp); update_lcd();
++        return -1;
++    }
++    draw_string(x_result, y, "[OK]"); update_lcd();
++    y += 20;
++
++    // Mount
++    draw_string(0, y, "Disk Mount"); update_lcd();
++    fres = f_mount(fs, "", 0);
++    if (fres != FR_OK) {
++        sprintf(tmp, "[NG] code=0x%x", (int)fres);
++        draw_string(x_result, y, tmp); update_lcd();
++        return -1;
++    }
++    draw_string(x_result, y, "[OK]"); update_lcd();
++    y += 20;
++
++    // Enumerate File
++    draw_string(0, y, "File List"); update_lcd();
++
++    DIR dobj;
++    FILINFO finfo;
++    fres = f_findfirst(&dobj, &finfo, "", "*.nes");
++    int num_files = 0;
++    while (fres == FR_OK && finfo.fname[0] && strlen(finfo.fname) > 4 ) {
++        fname_list[num_files] = (char*)malloc(strlen(finfo.fname) + 1);
++        strcpy(fname_list[num_files], finfo.fname);
++        fsize_list[num_files] = finfo.fsize;
++        fres = f_findnext(&dobj, &finfo);
++        num_files++;
++    }
++    if (fres != FR_OK) {
++        sprintf(tmp, "[NG] code=0x%x", (int)fres);
++        draw_string(x_result, y, tmp); update_lcd();
++        return -1;
++    }
++    f_closedir(&dobj);
++    draw_string(x_result, y, "[OK]"); update_lcd();
++    y += 20;
++
++    return num_files;
++}
++
++static int rom_select(int num_files, char **file_list) {
++    int sel_index = 0;
++    int page_index = 0;
++    char buf[6];
++    for(;;) {
++        clear_frame_buff();
++        page_index = (sel_index / items_per_page) * items_per_page;
++
++        for (int i = 0; i < items_per_page && (page_index + i) < num_files; i++) {
++            draw_string(20, i * 20, file_list[page_index + i]);
++        }
++
++        sprintf(buf,"%02d",sel_index+1);
++        draw_string(0,FRAME_BUFF_HEIGHT-20,buf);
++        draw_string(0, (sel_index % items_per_page) * 20, "=>");
++
++        update_lcd();
++
++        switch (wait_key()) {
++            case nes::input::BTN_UP:
++                if (sel_index == 0) {
++                    sel_index = num_files - 1;
++                } else {
++                    sel_index--;
++                }
++                break;
++            case nes::input::BTN_DOWN:
++                if (sel_index == num_files - 1) {
++                    sel_index = 0;
++                } else {
++                    sel_index++;
++                }
++                break;
++            case nes::input::BTN_A:
++            case nes::input::BTN_START:
++                return sel_index;
++        }
++    }
++}
++
++static bool load_nes(const char *fname, int size) {
++    FIL fil;
++    FRESULT fr;
++
++    clear_frame_buff();
++    draw_string(0, 0, "Loading...");
++    update_lcd();
++
++    fr = f_open(&fil, fname, FA_READ);
++    if (fr) {
++        draw_string(0, 20, "File open failed.");
++        update_lcd();
++        return false;
++    }
++
++    UINT sz;
++    uint8_t *ines = (uint8_t*)malloc(size);
++    fr = f_read(&fil, ines, size, &sz);
++    if (fr) {
++        draw_string(0, 20, "File read failed.");
++        update_lcd();
++        return false;
++    }
++
++    f_close(&fil);
++
++    nes::memory::map_ines(ines);
++    picocalc::set_spi_speed(SYS_CLK_FREQ / 4);
++
++    return true;
++}
+diff --git a/samples/v3/boot_menu.hpp b/samples/v3/boot_menu.hpp
+new file mode 100644
+index 0000000..a0f9b70
+--- /dev/null
++++ b/samples/v3/boot_menu.hpp
+@@ -0,0 +1,7 @@
++#ifndef BOOT_MENU_HPP
++#define BOOT_MENU_HPP
++
++// show boot menu
++bool boot_menu();
++constexpr int items_per_page = 11;//(FRAME_BUFF_HEIGHT/20)-1
++#endif
+diff --git a/samples/v3/common.cpp b/samples/v3/common.cpp
+new file mode 100644
+index 0000000..00654fd
+--- /dev/null
++++ b/samples/v3/common.cpp
+@@ -0,0 +1,173 @@
++#include "common.hpp"
++#include "i2ckbd.hpp"
++
++#include <hardware/irq.h>
++#include <hardware/structs/timer.h>
++
++static absolute_time_t now;
++uint8_t keycheck = 0;
++uint8_t keyread = 0;
++uint8_t frame_buff[FRAME_BUFF_STRIDE * nes::SCREEN_HEIGHT];
++//0 == released, 1 = pressed
++int input_pins[] = {
++        PIN_PAD_A, PIN_PAD_B, PIN_PAD_SELECT, PIN_PAD_START,
++        PIN_PAD_UP, PIN_PAD_DOWN, PIN_PAD_LEFT, PIN_PAD_RIGHT
++};
++
++int wait_key() {
++    // wait any button pushed
++    int i = -1;
++    for (;;) {
++        sleep_ms(10);
++        for (i = 0; i < 8; i++) {
++            if (input_pins[i] == 1) {
++                input_pins[i] = 0;
++                return i;
++            }
++        }
++    }
++    return i;
++}
++
++void draw_string(int x, int y, const char *str) {
++    mono8x16::draw_string_rgb565(
++            frame_buff, FRAME_BUFF_STRIDE, FRAME_BUFF_WIDTH, FRAME_BUFF_HEIGHT,
++            x, y, str, 0xffff);
++}
++
++void clear_frame_buff() {
++    for (int i = 0; i < FRAME_BUFF_STRIDE * FRAME_BUFF_HEIGHT; i++) {
++        frame_buff[i] = 0;
++    }
++}
++
++void update_lcd() {
++    picocalc::start_write_data((picocalc::WIDTH - FRAME_BUFF_WIDTH) / 2, (picocalc::HEIGHT - FRAME_BUFF_HEIGHT) / 2,
++                               FRAME_BUFF_WIDTH, FRAME_BUFF_HEIGHT, frame_buff);
++    picocalc::finish_write_data();
++}
++
++void setBacklight(int level){//STM32: i2c reg is REG_ID_BKL(0x05)
++    //level is 0-100%
++    level*=255;
++    level/=100;
++    i2ckbd::I2C_Send_RegData(i2ckbd::I2C_KBD_ADDR,0x05,(uint8_t)level);
++}
++
++//keyboard key status to input_pins map
++void set_kdb_key(uint8_t pin_offset, uint8_t key_status) {
++
++    if (key_status == 1) {
++        input_pins[pin_offset] = 1;
++    } else if (key_status == 3) {
++        input_pins[pin_offset] = 0;
++    }
++}
++
++void kbd_interrupt() {
++    int kbd_ret;
++    int c;
++    static int ctrlheld = 0;
++    uint8_t key_stat = 0;//press,release, or hold
++    if (keycheck == 0) {
++        if (keyread == 0) {
++            kbd_ret = i2ckbd::write_i2c_kbd();
++            keyread = 1;
++        } else {
++            kbd_ret = i2ckbd::read_i2c_kbd();
++            keyread = 0;
++        }
++        keycheck=KEYCHECKTIME;
++    }
++    if (kbd_ret < 0) {
++        if (i2ckbd::check_if_failed() > 0) {
++            printf("try to reset i2c\n");
++            i2ckbd::reset_failed();
++            i2ckbd::init_i2c_kbd();//re-init
++        }
++    }
++
++    if (kbd_ret) {
++        if (kbd_ret == 0xA503)ctrlheld = 0;
++        else if (kbd_ret == 0xA502) {
++            ctrlheld = 1;
++        } else if ((kbd_ret & 0xff) == 1) {//pressed
++            key_stat = 1;
++        } else if ((kbd_ret & 0xff) == 3) {
++            key_stat = 3;
++        }
++
++        c = kbd_ret >> 8;
++        int realc = -1;
++        switch (c) {
++            case 0xA1:
++            case 0xA2:
++            case 0xA3:
++            case 0xA4:
++            case 0xA5:
++                realc = -1;//skip shift alt ctrl keys
++                break;
++            default:
++                realc = c;
++                break;
++        }
++
++        c = realc;
++        if (c >= 'a' && c <= 'z' && ctrlheld)c = c - 'a' + 1;
++
++        switch (c) {
++            case 0xb5://UP
++                set_kdb_key(4, key_stat);
++                break;
++            case 0xb6://DOWN
++                set_kdb_key(5, key_stat);
++                break;
++            case 0xb4://LEFT
++                set_kdb_key(6, key_stat);
++                break;
++            case 0xb7://RIGHT
++                set_kdb_key(7, key_stat);
++                break;
++            case '-':// select
++                set_kdb_key(2, key_stat);
++                break;
++            case '=':// start
++                set_kdb_key(3, key_stat);
++                break;
++            case '['://B
++                set_kdb_key(1, key_stat);
++                break;
++            case ']'://A
++                set_kdb_key(0, key_stat);
++                break;
++            default:
++                break;
++        }
++    }
++}
++
++static void __attribute__ ((optimize("-Os"))) __not_in_flash_func(timer_tick_cb)(unsigned alarm) {
++
++    absolute_time_t next;
++    update_us_since_boot(&next, to_us_since_boot(now) + ( TICKSPERSEC));
++    if (hardware_alarm_set_target(0, next)) {
++        update_us_since_boot(&next, time_us_64() + ( TICKSPERSEC));
++        hardware_alarm_set_target(0, next);
++    }
++
++    kbd_interrupt();
++    if(keycheck){
++        keycheck--;
++    }
++
++}
++
++void device_init() {
++
++    hardware_alarm_claim(0);
++    update_us_since_boot(&now, time_us_64());
++    hardware_alarm_set_callback(0, timer_tick_cb);
++    hardware_alarm_force_irq(0);
++
++    //setBacklight(80);
++}
+\ No newline at end of file
+diff --git a/samples/v3/common.hpp b/samples/v3/common.hpp
+new file mode 100644
+index 0000000..9ae098b
+--- /dev/null
++++ b/samples/v3/common.hpp
+@@ -0,0 +1,51 @@
++#ifndef COMMON_HPP
++#define COMMON_HPP
++
++#include "stdint.h"
++#include "pico/stdlib.h"
++#include "hardware/clocks.h"
++#include "hardware/gpio.h"
++#include "shapones/shapones.hpp"
++#include "picocalc.hpp"
++#include "mono8x16.hpp"
++
++// system clock frequency
++static constexpr uint32_t SYS_CLK_FREQ = 250 * MHZ;
++
++// frame buffer for DMA (RGB565)
++constexpr int FRAME_BUFF_WIDTH = 240;
++constexpr int FRAME_BUFF_STRIDE = FRAME_BUFF_WIDTH * 2;
++constexpr int FRAME_BUFF_HEIGHT = nes::SCREEN_HEIGHT;
++extern uint8_t frame_buff[FRAME_BUFF_STRIDE * nes::SCREEN_HEIGHT];
++
++// pad pins
++static constexpr int PIN_PAD_A      = 0;
++static constexpr int PIN_PAD_B      = 0;
++static constexpr int PIN_PAD_START  = 0;
++static constexpr int PIN_PAD_SELECT = 0;
++static constexpr int PIN_PAD_RIGHT  = 0;
++static constexpr int PIN_PAD_DOWN   = 0;
++static constexpr int PIN_PAD_LEFT   = 0;
++static constexpr int PIN_PAD_UP     = 0;
++extern int input_pins[];
++
++static constexpr uint TICKSPERSEC = 1000;   /* Ticks per second */
++static constexpr uint8_t KEYCHECKTIME=16;
++
++// wait until some key is pressed
++int wait_key();
++
++// clear frame buffer with black color
++void clear_frame_buff();
++
++// draw string to frame buffer
++void draw_string(int x, int y, const char *str);
++
++// transfer image from frame buffer to LCD
++void update_lcd();
++
++void device_init();
++
++void setBacklight(int);
++
++#endif
+diff --git a/samples/v3/i2ckbd.cpp b/samples/v3/i2ckbd.cpp
+new file mode 100644
+index 0000000..15a3111
+--- /dev/null
++++ b/samples/v3/i2ckbd.cpp
+@@ -0,0 +1,79 @@
++#include <stdio.h>
++#include <pico/stdio.h>
++#include "i2ckbd.hpp"
++
++namespace i2ckbd{
++
++    static uint8_t i2c_inited = 0;
++    uint16_t i2c_failed = 0;
++
++    void init_i2c_kbd(){
++        gpio_set_function(I2C_KBD_SCL, GPIO_FUNC_I2C);
++        gpio_set_function(I2C_KBD_SDA, GPIO_FUNC_I2C);
++        i2c_init(I2C_KBD_MOD, I2C_KBD_SPEED);
++        gpio_pull_up(I2C_KBD_SCL);
++        gpio_pull_up(I2C_KBD_SDA);
++
++        i2c_inited = 1;
++    }
++
++    int write_i2c_kbd(){
++         int retval;
++        unsigned char msg[2];
++        msg[0] = 0x09;
++
++        if(i2c_inited == 0) return -1;
++
++        retval = i2c_write_timeout_us(I2C_KBD_MOD, I2C_KBD_ADDR, msg, 1, false, 500000);
++        if ( retval == PICO_ERROR_GENERIC || retval == PICO_ERROR_TIMEOUT) {
++            printf( "i2c write error\n");
++            i2c_failed+=1;
++            return -1;
++        }
++        return 0;
++    }
++
++    int read_i2c_kbd(){
++        int retval;
++        //static int ctrlheld=0;
++        uint16_t buff = 0;
++        unsigned char msg[2];
++        int c  = -1;
++        msg[0] = 0x09;
++
++        if(i2c_inited == 0) return -1;
++
++        retval = i2c_read_timeout_us(I2C_KBD_MOD, I2C_KBD_ADDR, (unsigned char*)&buff, 2, false, 500000);
++        if ( retval == PICO_ERROR_GENERIC || retval == PICO_ERROR_TIMEOUT) {
++            printf("i2c read error read\n");
++            i2c_failed+=1;
++            return -1;
++        }
++
++        return buff;
++    }
++
++    int I2C_Send_RegData(int i2caddr,int reg,char command){
++        int retval;
++        unsigned char I2C_Send_Buffer[2];
++        I2C_Send_Buffer[0]=reg;
++        I2C_Send_Buffer[1]=command;
++        uint8_t I2C_Sendlen=2;
++        uint16_t  I2C_Timeout=1000;
++
++        retval=i2c_write_timeout_us(I2C_KBD_MOD, (uint8_t)i2caddr, (uint8_t *)I2C_Send_Buffer, I2C_Sendlen,false, I2C_Timeout*1000);
++
++        if ( retval == PICO_ERROR_GENERIC || retval == PICO_ERROR_TIMEOUT) {
++            printf( "I2C_Send_RegData write error\n");
++            return -1;
++        }
++        return 0;
++    }
++    int check_if_failed(){
++        return i2c_failed;
++    }
++    void reset_failed(){
++        i2c_deinit(I2C_KBD_MOD);
++        i2c_failed = 0;
++    }
++}
+\ No newline at end of file
+diff --git a/samples/v3/i2ckbd.hpp b/samples/v3/i2ckbd.hpp
+new file mode 100644
+index 0000000..01ba106
+--- /dev/null
++++ b/samples/v3/i2ckbd.hpp
+@@ -0,0 +1,26 @@
++#ifndef I2C_KEYBOARD_HPP
++#define I2C_KEYBOARD_HPP
++
++#include <pico/stdlib.h>
++#include <pico/platform.h>
++#include <hardware/gpio.h>
++#include <hardware/i2c.h>
++
++#define I2C_KBD_MOD i2c1
++
++namespace i2ckbd {
++
++    static constexpr uint I2C_KBD_SDA = 6;
++    static constexpr uint I2C_KBD_SCL = 7;
++    static constexpr uint I2C_KBD_SPEED = 400000;
++    static constexpr uint I2C_KBD_ADDR = 0x1F;
++
++
++    void init_i2c_kbd();
++    int write_i2c_kbd();
++    int read_i2c_kbd();
++    int check_if_failed();
++    void reset_failed();
++    int I2C_Send_RegData(int i2caddr, int reg, char command);
++}
++#endif
+diff --git a/samples/v3/picocalc.cpp b/samples/v3/picocalc.cpp
+new file mode 100644
+index 0000000..91cd5de
+--- /dev/null
++++ b/samples/v3/picocalc.cpp
+@@ -0,0 +1,436 @@
++
++#include "picocalc.hpp"
++#include "picocalc_c.h"
++#include "picocalc.pio.h"
++
++namespace picocalc {
++
++static int sys_clock_hz;
++static direction_t curr_dir = EMPTY;
++static int curr_speed = 10 * MHZ;
++
++static PIO spi_pio;
++static uint spi_sm;
++static uint spi_offset;
++static uint dma_tx;
++
++// SPI push byte
++static void pio_push(uint8_t data);
++
++// SPI pop byte
++static uint8_t pio_pop();
++
++// wait for SPI to idle
++static void pio_wait_idle();
++
++// setup SPI direction and speed
++static void setup_pio(direction_t new_dir, int new_speed);
++
++// set SPI direction
++static void set_spi_direction(direction_t new_dir);
++
++void init(int sys_clk_hz) {
++    sys_clock_hz = sys_clk_hz;
++
++    spi_pio = pio0;
++    spi_sm = 0;
++
++    spi_offset = pio_add_program(spi_pio, &picocalc_program );
++    pio_gpio_init(spi_pio, PIN_MISO);
++    pio_gpio_init(spi_pio, PIN_MOSI);
++    pio_gpio_init(spi_pio, PIN_SCK);
++    pio_sm_set_consecutive_pindirs(spi_pio, spi_sm, PIN_MISO, 1, false);
++    pio_sm_set_consecutive_pindirs(spi_pio, spi_sm, PIN_MOSI, 1, true);
++    pio_sm_set_consecutive_pindirs(spi_pio, spi_sm, PIN_SCK, 1, true);
++
++    dma_tx = dma_claim_unused_channel(true);
++    
++    gpio_init(PIN_RST);
++    gpio_init(PIN_DC);
++    gpio_init(PIN_LCD_CS);
++    gpio_init(PIN_RAM_CS);
++    gpio_set_dir(PIN_RST, GPIO_OUT);
++    gpio_set_dir(PIN_DC, GPIO_OUT);
++    gpio_set_dir(PIN_RAM_CS,GPIO_OUT);
++    gpio_set_dir(PIN_LCD_CS, GPIO_OUT);
++
++    gpio_put(PIN_RST, 1);
++    gpio_put(PIN_LCD_CS, 1);
++    gpio_put(PIN_RAM_CS,1);
++    
++    // hardware reset
++    gpio_put(PIN_RST, 1);
++    sleep_ms(1);
++    gpio_put(PIN_RST, 0);
++    sleep_ms(10);
++    gpio_put(PIN_RST, 1);
++    sleep_ms(10);
++
++    {
++        uint8_t data[] = {0xc3};
++        write_command(0xF0,data,sizeof(data));
++    }
++    {
++        uint8_t data[] = {0x96};
++        write_command(0xF0,data,sizeof(data));
++    }
++
++    {
++        uint8_t data[] = {0x48};
++        write_command(0x36,data,sizeof(data));
++    }
++
++    {
++        uint8_t data[] = {0x65};
++        write_command(0x3A,data,sizeof(data));
++    }
++    {
++        // Frame Rate Control
++        uint8_t data[] = {0xA0};
++        write_command(0xB1,data,sizeof(data));
++    }
++    {
++        uint8_t data[] = {0x00};
++        write_command(0xB4,data,sizeof(data));
++    }
++    {
++        uint8_t data[] = {0xc6};
++        write_command(0xB7,data,sizeof(data));
++    }
++    {
++        uint8_t data[] = {0x02,0xE0};
++        write_command(0xB9,data,sizeof(data));
++    }
++
++    {
++        uint8_t data[] = {0x80,0x06};
++        write_command(0xC0,data,sizeof(data));
++    }
++
++    {
++        uint8_t data[] = {0x15};
++        write_command(0xC1,data,sizeof(data));
++    }
++
++    {
++        uint8_t data[] = {0xA7};
++        write_command(0xC2,data,sizeof(data));
++    }
++    {
++        uint8_t data[] = {0x04};
++        write_command(0xC5,data,sizeof(data));
++    }
++
++    {
++        uint8_t data[] = {0x40,0x8A,0x00,0x00,0x29,0x19,0xAA,0x33};
++        write_command(0xE8,data,sizeof(data));
++    }
++
++    {
++        uint8_t data[] = {0xF0,0x06,0x0F,0x05,0x04,0x20,0x37,0x33,0x4C,0x37,0x13,0x14,0x2B,0x31};
++        write_command(0xE0,data,sizeof(data));
++    }
++
++    {
++        uint8_t data[] = {0xF0,0x11,0x1B,0x11,0x0F,0x0A,0x37,0x43,0x4C,0x37,0x13,0x13,0x2C,0x32};
++        write_command(0xE1,data,sizeof(data));
++    }
++
++    {
++        uint8_t data[] = {0x3C};
++        write_command(0xF0,data,sizeof(data));
++    }
++
++    {
++        uint8_t data[] = {0x69};
++        write_command(0xF0,data,sizeof(data));
++    }
++
++    {
++        uint8_t data[] = {0x00};
++        write_command(0x35,data,sizeof(data));
++    }
++    write_command(0x11);//TFT_SLPOUT
++    sleep_ms(120);
++    //TFT_INVON
++    write_command(0x21);
++
++    clear(0);
++
++    write_command(0x29);//TFT_DISPON
++    sleep_ms(120);
++
++    {
++        uint8_t data[] = {0x00,0x00,0x01,0x3F};
++        write_command(0x2A,data,sizeof(data));
++    }
++
++    {
++        uint8_t data[] = {0x00,0x00,0x01,0x3F};
++        write_command(0x2B,data,sizeof(data));
++    }
++    write_command(0x2C);
++
++/*
++    {
++        //// Positive Gamma Control
++        uint8_t data[] = {0x00,0x03,0x09,0x08,0x16,0x0a,0x3f,0x78,0x4c,0x09,0x0a,0x08,0x16,0x1a,0x0f};
++        write_command(0xE0,data,sizeof(data));
++    }
++    {
++        //// Negative Gamma Control
++        uint8_t data[] = {0x00,0x16,0x19,0x03,0x0f,0x05,0x32,0x45,0x46,0x04,0x0e,0x0d,0x35,0x37,0x0f};
++        write_command(0xE1,data,sizeof(data));
++    }
++    {
++        // Power Control 1
++        uint8_t data[] = {0x17,0x15};
++        write_command(0xC0,data,sizeof(data));
++    }
++    {
++        // Power Control 2
++        uint8_t data[] = {0x41};
++        write_command(0xC1,data,sizeof(data));
++    }
++    {
++        //// VCOM Control
++        uint8_t data[] = {0x00,0x12,0x80};
++        write_command(0xC5,data,sizeof(data));
++    }
++    {
++        // Memory Access Control
++        //MX,MV, RGB mode
++        uint8_t data[] = {0x48}; // (0x40 | 0x20) or 0x48
++        write_command(0x36,data,sizeof(data));
++    }
++
++    {
++        // Pixel Interface Format
++        uint8_t data[] = {0x65}; //0x65=16 bit colour for SPI,0x66=18bits
++        write_command(0x3A,data,sizeof(data));
++    }
++
++    {
++        // Interface Mode Control
++        uint8_t data[] = {0x00};
++        write_command(0xB0,data,sizeof(data));
++    }
++    {
++        // Frame Rate Control
++        uint8_t data[] = {0xA0};
++        write_command(0xB1,data,sizeof(data));
++    }
++
++    {
++        // Display Inversion Control
++        uint8_t data[] = {0x02};
++        write_command(0xB4,data,sizeof(data));
++    }
++
++    {
++        // Display Function Control
++        uint8_t data[] = {0x02,0x02,0x3B};
++        write_command(0xB6,data,sizeof(data));
++    }
++
++    {
++        // Entry Mode Set
++        uint8_t data[] = {0xC6,0xE9,0x00};
++        write_command(0xB7,data,sizeof(data));
++    }
++
++    {
++        // Adjust Control 3
++        uint8_t data[] = {0xA9,0x51,0x2C,0x82};
++        write_command(0xF7,data,sizeof(data));
++    }
++
++        write_command(0x11);//TFT_SLPOUT
++        sleep_ms(120);
++
++        //TFT_INVON
++        write_command(0x21);
++
++        clear(0);
++
++        write_command(0x29);//TFT_DISPON
++        sleep_ms(120);
++*/
++}
++
++void setup_pio(direction_t new_dir, int new_speed) {
++    if (new_dir == curr_dir && new_speed == curr_speed) return;
++
++    float div = sys_clock_hz / 2.f / new_speed;
++    
++    pio_sm_set_enabled(spi_pio, spi_sm, false);
++
++    // load new PIO
++    if (new_dir == TX) {
++        pio_sm_config pio_cfg = picocalc_program_get_default_config(spi_offset);
++        sm_config_set_out_pins(&pio_cfg, PIN_MOSI, 1);
++        sm_config_set_sideset_pins(&pio_cfg, PIN_SCK);
++        sm_config_set_fifo_join(&pio_cfg, PIO_FIFO_JOIN_TX);
++        sm_config_set_out_shift(&pio_cfg, false, true, 8);
++        sm_config_set_clkdiv(&pio_cfg, div);
++        pio_sm_init(spi_pio, spi_sm, spi_offset, &pio_cfg);
++    }
++    else if (new_dir == RX) {
++        pio_sm_config pio_cfg = picocalc_program_get_default_config(spi_offset);
++        sm_config_set_out_pins(&pio_cfg, PIN_MOSI, 1);
++        sm_config_set_in_pins(&pio_cfg, PIN_MISO);
++        sm_config_set_sideset_pins(&pio_cfg, PIN_SCK);
++        sm_config_set_out_shift(&pio_cfg, false, true, 8);
++        sm_config_set_in_shift(&pio_cfg, false, true, 8);
++        sm_config_set_clkdiv(&pio_cfg, div);
++        pio_sm_init(spi_pio, spi_sm, spi_offset, &pio_cfg);
++    }
++
++    hw_set_bits(&spi_pio->input_sync_bypass, 1u << PIN_MISO);
++    pio_sm_set_enabled(spi_pio, spi_sm, true);
++
++    curr_dir = new_dir;
++    curr_speed = new_speed;
++}
++
++void set_spi_direction(direction_t new_dir) {
++    setup_pio(new_dir, curr_speed);
++}
++
++void set_spi_speed(int new_speed) {
++    setup_pio(curr_dir, new_speed);
++}
++
++void clear(uint16_t color) {
++    uint8_t data[WIDTH * 2];
++    for (int x = 0; x < WIDTH * 2; x++) {
++        data[x] = color;
++    }
++    for (int y = 0; y < HEIGHT; y++) {
++        start_write_data(0, y, WIDTH, 1, data);
++        finish_write_data();
++    }
++}
++
++void start_write_data(int x0, int y0, int w, int h, uint8_t *data) {
++    int x1 = x0 + w - 1;
++    int y1 = y0 + h - 1;
++    {
++        uint8_t xcoord[] = {
++            (uint8_t)(x0 >> 8), 
++            (uint8_t)(x0 & 0xff), 
++            (uint8_t)(x1 >> 8), 
++            (uint8_t)(x1 & 0xff)
++        };
++        write_command(0x2a, xcoord, sizeof(xcoord));
++    }
++    {
++        uint8_t ycoord[] = {
++            (uint8_t)(y0 >> 8), 
++            (uint8_t)(y0 & 0xff), 
++            (uint8_t)(y1 >> 8), 
++            (uint8_t)(y1 & 0xff)
++        };
++        write_command(0x2b, ycoord, sizeof(ycoord));
++    }
++    //write_command(0x2c, data, w * h * 3 / 2);
++
++    {
++        gpio_put(PIN_DC, 0);
++        gpio_put(PIN_LCD_CS, 0);
++        uint8_t cmd = 0x2c;
++        write_blocking(&cmd, 1);
++        gpio_put(PIN_DC, 1);
++        
++        {
++            dma_channel_config dma_cfg = dma_channel_get_default_config(dma_tx);
++            channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_8);
++            channel_config_set_dreq(&dma_cfg, pio_get_dreq(spi_pio, spi_sm, true));
++            dma_channel_configure(dma_tx, &dma_cfg,
++                                    &spi_pio->txf[spi_sm], // write address
++                                    data, // read address
++                                    w * h * 2, // element count (each element is of size transfer_data_size)
++                                    false); // don't start yet
++        }
++        
++        dma_start_channel_mask(1u << dma_tx);
++    }
++
++}
++
++void finish_write_data() {
++    dma_channel_wait_for_finish_blocking(dma_tx);
++    pio_wait_idle();
++    gpio_put(PIN_LCD_CS, 1);
++}
++
++void write_command(uint8_t cmd, const uint8_t *data, int len) {
++    set_spi_direction(TX);
++    gpio_put(PIN_DC, 0); // command mode
++    gpio_put(PIN_LCD_CS, 0);
++    write_blocking(&cmd, 1);
++    if (data) {
++        gpio_put(PIN_DC, 1); // data mode
++        write_blocking(data, len);
++    }
++    gpio_put(PIN_LCD_CS, 1);
++}
++
++void write_command(uint8_t cmd) {
++    set_spi_direction(TX);
++    write_command(cmd, nullptr, 0);
++}
++
++void write_blocking(const uint8_t *data, int len) {
++    set_spi_direction(TX);
++    for(int i = 0; i < len; i++) {
++        pio_push(data[i]);
++    }
++    pio_wait_idle();
++}
++
++void read_blocking(uint8_t tx_repeat, uint8_t *buff, int len) {
++    set_spi_direction(RX);
++    int tx_remain = len, rx_remain = len;
++    io_rw_8 *txfifo = (io_rw_8 *) &spi_pio->txf[spi_sm];
++    io_rw_8 *rxfifo = (io_rw_8 *) &spi_pio->rxf[spi_sm];
++    while (tx_remain || rx_remain) {
++        if (tx_remain && !pio_sm_is_tx_fifo_full(spi_pio, spi_sm)) {
++            *txfifo = tx_repeat;
++            --tx_remain;
++        }
++        if (rx_remain && !pio_sm_is_rx_fifo_empty(spi_pio, spi_sm)) {
++            *buff++ = *rxfifo;
++            --rx_remain;
++        }
++    }
++}
++
++static void pio_push(uint8_t data) {
++    while (pio_sm_is_tx_fifo_full(spi_pio, spi_sm)) { }
++    *(volatile uint8_t*)&spi_pio->txf[spi_sm] = data;
++}
++
++static uint8_t pio_pop() {
++    while (pio_sm_is_rx_fifo_empty(spi_pio, spi_sm)) { }
++    return *(volatile uint8_t*)&spi_pio->rxf[spi_sm];
++}
++
++static void pio_wait_idle() {
++    uint32_t stall_mask = 1u << (spi_sm + PIO_FDEBUG_TXSTALL_LSB);
++    spi_pio->fdebug = stall_mask;
++    while (!(spi_pio->fdebug & stall_mask)) { }
++}
++
++extern "C" {
++
++void ws19804_write_blocking(const uint8_t *buff, int len) {
++    picocalc::write_blocking(buff, len);
++}
++void ws19804_read_blocking(uint8_t tx_repeat, uint8_t *buff, int len) {
++    picocalc::read_blocking(tx_repeat, buff, len);
++}
++
++}
++
++}
+diff --git a/samples/v3/picocalc.hpp b/samples/v3/picocalc.hpp
+new file mode 100644
+index 0000000..6b82739
+--- /dev/null
++++ b/samples/v3/picocalc.hpp
+@@ -0,0 +1,58 @@
++#ifndef WS19804_HPP
++#define WS19804_HPP
++
++#include "stdint.h"
++#include "pico/stdlib.h"
++#include "hardware/pio.h"
++#include "hardware/gpio.h"
++#include "hardware/clocks.h"
++#include "hardware/dma.h"
++
++namespace picocalc {
++
++static constexpr int WIDTH = 320;
++static constexpr int HEIGHT = 320;//LCD SCREEN HEIGHT,not logical Height
++static constexpr uint PIN_DC = 14;
++static constexpr uint PIN_LCD_CS = 13;
++//static constexpr uint PIN_TP_CS = 16;
++static constexpr uint PIN_RAM_CS = 21;
++static constexpr uint PIN_SCK = 10;
++static constexpr uint PIN_MOSI = 11;
++static constexpr uint PIN_MISO = 12;
++static constexpr uint PIN_RST = 15;
++//static constexpr uint PIN_BL = 13;
++
++enum direction_t {
++    EMPTY, TX, RX
++};
++
++// setup GPIO, PIO, LCD
++void init(int sys_clk_hz);
++
++// set SPI clock frequency
++void set_spi_speed(int new_speed);
++
++// clear display
++void clear(uint16_t color);
++
++// start DMA
++void start_write_data(int x0, int y0, int w, int h, uint8_t *data);
++
++// wait DMA to finish
++void finish_write_data();
++
++// write LCD command
++void write_command(uint8_t cmd, const uint8_t *data, int len);
++
++// write LCD command
++void write_command(uint8_t cmd);
++
++// SPI write
++void write_blocking(const uint8_t *data, int len);
++
++// SPI read
++void read_blocking(uint8_t tx_repeat, uint8_t *buff, int len);
++
++}
++
++#endif
+diff --git a/samples/v3/picocalc.pio b/samples/v3/picocalc.pio
+new file mode 100644
+index 0000000..2af8cc1
+--- /dev/null
++++ b/samples/v3/picocalc.pio
+@@ -0,0 +1,7 @@
++.program picocalc
++.side_set 1
++
++.wrap_target
++    out pins, 1     side 0
++    in pins, 1      side 1
++.wrap
+diff --git a/samples/v3/picocalc_c.h b/samples/v3/picocalc_c.h
+new file mode 100644
+index 0000000..8599482
+--- /dev/null
++++ b/samples/v3/picocalc_c.h
+@@ -0,0 +1,14 @@
++#ifndef WS19804_C_H
++#define WS19804_C_H
++
++#include "stdint.h"
++
++#define Pico_SD_SPI_MOD spi0
++
++// SPI write function for FatFS
++void ws19804_write_blocking(const uint8_t *data, int len);
++
++// SPI read function for FatFS
++void ws19804_read_blocking(uint8_t tx_repeat, uint8_t *buff, int len);
++
++#endif
+diff --git a/samples/v3/picocalc_nes.cpp b/samples/v3/picocalc_nes.cpp
+new file mode 100644
+index 0000000..fbc1069
+--- /dev/null
++++ b/samples/v3/picocalc_nes.cpp
+@@ -0,0 +1,251 @@
++#include "hardware/gpio.h"
++#include "hardware/clocks.h"
++#include "hardware/vreg.h"
++#include "hardware/watchdog.h"
++#include "pico/stdlib.h"
++#include "pico/multicore.h"
++#include "pico/util/queue.h"
++#include "pico/time.h"
++
++#include "i2ckbd.hpp"
++#include "picocalc.hpp"
++
++#include "pwm_audio.hpp"
++
++#include "shapones/shapones.hpp"
++
++#include "common.hpp"
++#include "boot_menu.hpp"
++
++// monitor pin for debugging
++static constexpr int PIN_MONITOR = 1;
++
++// speaker PWM out
++static constexpr int PIN_SPEAKER = 26;
++
++// APU configuration
++static constexpr int SPK_LATENCY = 256;
++static constexpr int SPK_PWM_FREQ = 22050;
++
++/*
++// NES color table ,rgb444
++static const uint16_t COLOR_TABLE[] = {
++    0x555, 0x027, 0x019, 0x308, 0x406, 0x603, 0x500, 0x410, 
++    0x230, 0x040, 0x040, 0x040, 0x034, 0x000, 0x000, 0x000, 
++    0x999, 0x05C, 0x33F, 0x62E, 0x81B, 0xA16, 0x922, 0x740, 
++    0x560, 0x270, 0x080, 0x072, 0x067, 0x000, 0x000, 0x000, 
++    0xFFF, 0x5AF, 0x78F, 0xB6F, 0xE5F, 0xF5B, 0xF76, 0xD82, 
++    0xAB0, 0x7C0, 0x5D2, 0x3D7, 0x3BD, 0x444, 0x000, 0x000, 
++    0xFFF, 0xADF, 0xCCF, 0xDBF, 0xFBF, 0xFBD, 0xFBB, 0xEC9, 
++    0xDD7, 0xBE7, 0xAE9, 0x9EB, 0xADE, 0xAAA, 0x000, 0x000,
++};
++*/
++
++// NES color table ,rgb565
++static const uint16_t COLOR_TABLE[] = {
++0x52aa, 0x010e, 0x0093, 0x3011, 0x400c, 0x6006, 0x6000, 0x4080,
++0x2180, 0x0220, 0x0220, 0x0220, 0x0188, 0x0000, 0x0000, 0x0000,
++0x9cd3, 0x02b9, 0x319f, 0x611d, 0x8897, 0xa88c, 0xa904, 0x7220,
++0x5320, 0x23a0, 0x0440, 0x03a4, 0x032e, 0x0000, 0x0000, 0x0000,
++0xffff, 0x555f, 0x745f, 0xbb3f, 0xeabf, 0xfab7, 0xfbac, 0xdc44,
++0xadc0, 0x7660, 0x56e4, 0x36ee, 0x35db, 0x4228, 0x0000, 0x0000,
++0xffff, 0xaeff, 0xce7f, 0xdddf, 0xfddf, 0xfddb, 0xfdd7, 0xee73,
++0xdeee, 0xbf6e, 0xaf73, 0x9f77, 0xaefd, 0xad55, 0x0000, 0x0000
++};
++
++/*
++static const uint16_t COLOR_TABLE[] = {
++        0x52AA, 0x0117, 0x00D2, 0x1861, 0x20C2, 0x30A0, 0x2840, 0x2108,
++        0x10C2, 0x0020, 0x0020, 0x0020, 0x018A, 0x0000, 0x0000, 0x0000,
++        0x9CD3, 0x02BF, 0x1CFF, 0x4E3F, 0x733F, 0xA89F, 0x9105, 0x82E0,
++        0x5B00, 0x2120, 0x0010, 0x0019, 0x0053, 0x0000, 0x0000, 0x0000,
++        0xFFFF, 0x52FF, 0x7BFF, 0xB7FF, 0xE7FF, 0xF79E, 0xFFDC, 0xD740,
++        0xAC00, 0x8300, 0x5A40, 0x3AA0, 0x3B7C, 0x5294, 0x0000, 0x0000,
++        0xFFFF, 0xBFFF, 0xDDFF, 0xEFFC, 0xFFFF, 0xFFFB, 0xFFEA, 0xD749,
++        0xCE79, 0xC6B8, 0xAD8C, 0x94EF, 0xC678, 0xAD55, 0x0000, 0x0000,
++};
++ */
++// line buffer FIFO between core1 --> core0
++// <------------- STRIDE ------------>
++// +---------+-----------------------+    A
++// | y coord | color numbers (256px) |    |
++// | 1 Byte  | 256 Byte              |    |
++// +---------+-----------------------+  DEPTH
++// |    :    |           :           |    |
++// |    :    |           :           |    |
++// +---------+-----------------------+    V
++static constexpr int LINE_FIFO_DEPTH = 8;
++static constexpr int LINE_FIFO_STRIDE = nes::SCREEN_WIDTH + 1;
++static uint8_t line_buff[LINE_FIFO_DEPTH * LINE_FIFO_STRIDE];
++static volatile int line_fifo_wptr = 0;
++static volatile int line_fifo_rptr = 0;
++
++// sound buffer for DMA
++static uint8_t spk_buff[SPK_LATENCY];
++
++// start game
++static void boot_nes();
++
++// core0 main loop
++static void cpu_loop();
++
++// core1 main loop
++static void ppu_loop();
++
++// APU DMA finish IRQ handler
++static void apu_dma_handler();
++
++// let APU fill the sound buffer
++static void apu_fill_buffer(PwmAudio::sample_t *buff);
++
++// PWM audio driver
++PwmAudio speaker(PIN_SPEAKER, SPK_LATENCY, 8, (float)SYS_CLK_FREQ / SPK_PWM_FREQ, apu_dma_handler);
++
++int main() {
++    // setup clocks
++    vreg_set_voltage(VREG_VOLTAGE_1_30);
++    sleep_ms(100);
++    stdio_init_all();
++    set_sys_clock_khz(SYS_CLK_FREQ / 1000, true);
++    setup_default_uart();
++    
++    // setup monitor pin
++    gpio_init(PIN_MONITOR);
++    gpio_set_dir(PIN_MONITOR, GPIO_OUT);
++    gpio_put(PIN_MONITOR, 0);
++
++    i2ckbd::init_i2c_kbd();
++    device_init();
++
++    picocalc::init(SYS_CLK_FREQ);
++
++    // show boot menu
++    if ( ! boot_menu()) {
++        for(;;) sleep_ms(100);
++    }
++
++    // boot game
++    boot_nes();
++
++    return 0;
++}
++
++static void boot_nes() {
++    // set APU sampling rate
++    nes::apu::set_sampling_rate(SPK_PWM_FREQ);
++
++    // reset
++    nes::reset();
++
++    // start APU loop
++    apu_fill_buffer(speaker.get_buffer(0));
++    apu_fill_buffer(speaker.get_buffer(1));
++    speaker.play();
++    
++    // start PPU loop
++    multicore_launch_core1(ppu_loop);
++
++    // start CPU loop
++    cpu_loop();
++}
++
++
++static void cpu_loop() {
++    auto t_last_frame = get_absolute_time();
++    int frame_count = 0;
++    char fps_str[16];
++    for(;;) {
++        // run CPU
++        nes::cpu::service();
++
++        // update input status
++        nes::input::InputStatus input_status;
++        input_status.raw = 0;
++        for(int i = 0; i < 8; i++) {
++            if (input_pins[i] == 1) {
++                input_status.raw |= (1 << i);
++            }
++        }
++        if( (input_status.raw & 0x0C) == 0x0C) {
++            watchdog_enable(1, 1);
++            watchdog_reboot(0, 0, 0);
++        }
++        nes::input::set_raw(0, input_status);
++
++        // check line buffer FIFO state
++        int fifo_rptr = line_fifo_rptr;
++        if (line_fifo_wptr != fifo_rptr) {
++            // convert color number to RGB565
++            int y = line_buff[fifo_rptr * LINE_FIFO_STRIDE];
++            int x0 = (nes::SCREEN_WIDTH - FRAME_BUFF_WIDTH) / 2;
++            uint8_t *rd_ptr = line_buff + (fifo_rptr * LINE_FIFO_STRIDE + x0 + 1);
++            uint8_t *wr_ptr = frame_buff + (y * FRAME_BUFF_STRIDE);
++            for (int x = 0; x < FRAME_BUFF_WIDTH; x++) {
++
++                uint16_t c0 = COLOR_TABLE[*(rd_ptr++) & 0x3f];
++                *(wr_ptr++) = (c0 >> 8) & 0xff;
++                *(wr_ptr++)  = c0 & 0xff;
++
++            }
++            line_fifo_rptr = (fifo_rptr + 1) % LINE_FIFO_DEPTH;
++
++            if (y == nes::SCREEN_HEIGHT - 1) {
++                // fps measurement
++                auto t_now = get_absolute_time();
++                if (frame_count < 60-1) {
++                    frame_count++;
++                }
++                else {
++                    auto t_diff = absolute_time_diff_us(t_last_frame, t_now);
++                    float fps = (60.0f * 1000000) / t_diff;
++                    sprintf(fps_str, "%5.2ffps", fps);
++                    t_last_frame = t_now;
++                    frame_count = 0;
++                }
++
++                // DMA transfer
++                picocalc::finish_write_data();
++                //draw_string(0, 0, fps_str);
++                picocalc::start_write_data((picocalc::WIDTH - FRAME_BUFF_WIDTH) / 2, (picocalc::HEIGHT - FRAME_BUFF_HEIGHT) / 2, FRAME_BUFF_WIDTH, FRAME_BUFF_HEIGHT, frame_buff);
++                static int tmp = 0;
++                //gpio_put(PIN_MONITOR, tmp);
++                tmp ^= 1;
++            }
++        }
++    }
++}
++
++
++static void ppu_loop() {
++    constexpr int FRAME_DELAY_US = 16666;
++    absolute_time_t next_time = delayed_by_us(get_absolute_time(), FRAME_DELAY_US);
++    
++    for(;;) {
++        int wptr = line_fifo_wptr;
++        bool eol = nes::ppu::service(&line_buff[wptr * LINE_FIFO_STRIDE + 1]);
++        int y = nes::ppu::current_focus_y();
++        if (eol && y < nes::SCREEN_HEIGHT) {
++            // Vsync
++            if (y == 0) {
++                busy_wait_until(next_time);
++                next_time = delayed_by_us(get_absolute_time(), FRAME_DELAY_US);
++            }
++
++            // push new line
++            line_buff[wptr * LINE_FIFO_STRIDE] = y;
++            line_fifo_wptr = (wptr + 1) % LINE_FIFO_DEPTH;
++        }
++    }
++}
++
++static void apu_dma_handler() {
++    speaker.flip_buffer();
++    apu_fill_buffer(speaker.get_next_buffer());
++}
++
++static void apu_fill_buffer(PwmAudio::sample_t *buff) {
++    nes::apu::service(spk_buff, speaker.LATENCY);
++    for (int i = 0; i < speaker.LATENCY; i++) {
++        buff[i] = spk_buff[i];
++    }
++}
+\ No newline at end of file
+diff --git a/samples/v3/pwm_audio.hpp b/samples/v3/pwm_audio.hpp
+new file mode 100644
+index 0000000..73c2c24
+--- /dev/null
++++ b/samples/v3/pwm_audio.hpp
+@@ -0,0 +1,109 @@
++#ifndef PWM_AUDIO_HPP
++#define PWM_AUDIO_HPP
++
++#include "stdint.h"
++#include "hardware/gpio.h"
++#include "hardware/pwm.h"
++#include "hardware/dma.h"
++#include "hardware/clocks.h"
++#include "hardware/irq.h"
++#include "pico/stdlib.h"
++
++using DmaFinishdedHandler = void(*)();
++
++class PwmAudio;
++static PwmAudio *inst;
++
++class PwmAudio {
++public:
++    using sample_t = uint32_t;
++
++    const dma_channel_transfer_size DMA_WIDTH =
++        sizeof(sample_t) == 1 ? DMA_SIZE_8 :
++        sizeof(sample_t) == 2 ? DMA_SIZE_16 :
++                                DMA_SIZE_32;
++    
++    const int PIN;
++    const int SLICE_NUM;
++    const int SAMPLE_BITS;
++    const float FREQUENCY;
++    const int LATENCY;
++    DmaFinishdedHandler dma_handler;
++
++    sample_t *buff;
++    int dma_ch;
++    int playing_bank;
++
++    PwmAudio(int pin, int latency, int sample_bits, float freq_ratio, DmaFinishdedHandler dma_handler) :
++        PIN(pin),
++        SLICE_NUM(pwm_gpio_to_slice_num(pin)),
++        SAMPLE_BITS(sample_bits),
++        FREQUENCY(freq_ratio),
++        LATENCY(latency),
++        buff(new sample_t[latency]),
++        dma_handler(dma_handler)
++    {
++        gpio_set_function(PIN, GPIO_FUNC_PWM);
++
++        int pwm_period = 1 << SAMPLE_BITS;
++        float pwm_clkdiv = freq_ratio / pwm_period;
++
++        pwm_config pwm_cfg = pwm_get_default_config();
++        pwm_config_set_clkdiv(&pwm_cfg, pwm_clkdiv);
++        pwm_config_set_wrap(&pwm_cfg, pwm_period - 1);
++        pwm_init(SLICE_NUM, &pwm_cfg, true);
++
++        pwm_set_gpio_level(PIN, 1 << (SAMPLE_BITS-1));
++
++        inst = this;
++    }
++
++    void play() {
++        dma_ch = dma_claim_unused_channel(true);
++        dma_channel_set_irq0_enabled(dma_ch, true);
++        irq_set_exclusive_handler(DMA_IRQ_0, dma_handler);
++        irq_set_enabled(DMA_IRQ_0, true);
++
++        playing_bank = 0;
++        start_dma();
++    }
++    
++    void stop() {
++        dma_channel_unclaim(dma_ch);
++        pwm_set_gpio_level(PIN, 1 << (SAMPLE_BITS-1));
++    }
++
++    void start_dma() {
++        dma_channel_config dma_cfg = dma_channel_get_default_config(dma_ch);
++        channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_32);
++        channel_config_set_read_increment(&dma_cfg, true);
++        channel_config_set_write_increment(&dma_cfg, false);
++        channel_config_set_dreq(&dma_cfg, DREQ_PWM_WRAP0 + SLICE_NUM);
++        dma_channel_configure(
++            dma_ch,
++            &dma_cfg,
++            &pwm_hw->slice[SLICE_NUM].cc, // write addr
++            buff + (playing_bank * LATENCY), // read addr
++            LATENCY, // number of data
++            true // start immediately
++        );
++    }
++
++    void flip_buffer() {
++        int fill_bank = playing_bank;
++        playing_bank = (playing_bank + 1) & 1;
++        inst->start_dma();
++        dma_hw->ints0 = (1u << dma_ch);
++    }
++
++    sample_t* get_buffer(int bank) {
++        return buff + (bank * LATENCY);
++    }
++
++    sample_t* get_next_buffer() {
++        int next_bank = (playing_bank + 1) & 1;
++        return get_buffer(next_bank);
++    }
++};
++
++#endif

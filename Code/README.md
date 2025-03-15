@@ -15,7 +15,7 @@ See how to setup pico sdk development
 https://github.com/clockworkpi/PicoCalc/wiki/Setting-Up-the-Pico-SDK-on-Linux-for-Pico-Development
 
 
-## How to compile FUZIX for picocalc
+## How to compile FUZIX 
 ```bash
 git clone https://github.com/EtchedPixels/FUZIX.git
 cd FUZIX
@@ -31,7 +31,7 @@ make world
 
 now copy `build/fuzix.uf2` into picocalc like every pico device 
 
-## How to compile PicoMite(MMB) for picocalc
+## How to compile PicoMite(MMB)
 
 ```bash
 git clone https://github.com/cuu/PicoMite.git
@@ -46,6 +46,34 @@ cmake ..
 make
 ```
 copy `build/PicoMite.uf2` into picocalc like every pico device
+
+
+## How to compile NES emulator
+```bash
+git clone https://github.com/shapoco/shapones.git
+
+cd shapones
+git apply ~/github/clockworkpi/PicoCalc/Code/shapones.patch
+cd samples/v3/
+mkdir build
+cd build
+export PICO_SDK_PATH=/to/where/your/pico/sdk/is
+cmake ..
+make
+```
+
+copy picocalc_nes.uf2 into picocalc
+
+use up/down key to select *.nes rom, 
+* - key is select
+* = key is start,
+* [ key is a 
+* ] key is b
+
+press -(select) and =(start) together, will reset the emulator to the rom selection page.
+
+
+
 
 
 
