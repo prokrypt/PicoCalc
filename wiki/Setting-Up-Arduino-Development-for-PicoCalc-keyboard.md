@@ -56,15 +56,17 @@ open Code/picocalc_keyboard/picocalc_keyboard.ino in Arduino IDE
 To upload your code:
 
 1. Connect the picocalc board to your PC using a usb type-c cable.
-2. Set the DIP 1 to ON
+2. Set the **DIP 1** to ON
 3. Long-Press the **Power On** button to power on.
 4. Click the **Upload** button in Arduino IDE.
-5. After upload, set DIP 1 to OFF
+5. After upload, set **DIP 1** to OFF
 
 Here is a screenshot of working arduino ide:  
 
 ![screenshot](https://github.com/clockworkpi/PicoCalc/blob/master/wiki/picocalc_keyboard_arduino_ide_compile.png)
 
+DIP switches are on the back of picocalc mainboard  
+![dips](https://github.com/clockworkpi/PicoCalc/blob/master/wiki/picocalc_back_dip_switch.png)
 
 ### Libraries version info  
 
