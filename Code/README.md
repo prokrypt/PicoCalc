@@ -65,7 +65,7 @@ make
 copy picocalc_nes.uf2 into picocalc
 
 use up/down key to select *.nes rom, 
-* - key is select
+* \- key is select
 * = key is start,
 * [ key is a 
 * ] key is b
