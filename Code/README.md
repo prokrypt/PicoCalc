@@ -72,7 +72,7 @@ use up/down key to select *.nes rom,
 
 press -(select) and =(start) together, will reset the emulator to the rom selection page.
 
-
+Due to the limitation of Pico memory, only ROMs with a size less than or equal to **44KB** can be used.
 
 
 
