@@ -17,22 +17,22 @@
 - **Compatible with 3D-printed cases**, making it an ideal DIY project.
 
 ---
-🛠 Development & Customization  
+## 🛠 Development & Customization  
 
 PicoCalc supports **C/C++ development** via Pico SDK,The firmware can be modified to include new features such as:
 
-* Graphing functions and scientific calculations.
-* I²C/SPI communication for interfacing with external sensors.
-* Keyboard remapping and custom UI modifications. 
+- Graphing functions and scientific calculations.
+- I²C/SPI communication for interfacing with external sensors.
+- Keyboard remapping and custom UI modifications. 
 
 
 See the [Code](https://github.com/clockworkpi/PicoCalc/Code) directory for sample applications.
 
 ---
 
-📢 Community & Support
-Official website: [clockworkpi.com](https://forum.clockworkpi.com/)
-Forum: [ClockworkPi Community](https://forum.clockworkpi.com/)
-GitHub Issues: [Report Bugs & Features](https://github.com/clockworkpi/PicoCalc/issues)
+## 📢 Community & Support  
+- Official website: [clockworkpi.com](https://forum.clockworkpi.com/)
+- Forum: [ClockworkPi Community](https://forum.clockworkpi.com/)
+- GitHub Issues: [Report Bugs & Features](https://github.com/clockworkpi/PicoCalc/issues)
 
 
