@@ -6,8 +6,7 @@
 arm-gnu-toolchain-13.3.rel1-x86_64-arm-none-eabi
 ```
 
-YAHAL
-
+YAHAL   
 https://github.com/cuu/YAHAL.git branch picocalc
 
 ## How to compile
@@ -20,7 +19,6 @@ git clone -b picocalc https://github.com/cuu/YAHAL.git
 
 ```
 wget https://developer.arm.com/-/media/Files/downloads/gnu/13.3.rel1/binrel/arm-gnu-toolchain-13.3.rel1-x86_64-arm-none-eabi.tar.xz
-
 tar xvf arm-gnu-toolchain-13.3.rel1-x86_64-arm-none-eabi.tar.xz
 ```
 
@@ -38,7 +36,7 @@ export PATH=/wherever/arm-gnu-toolchain-13.3.rel1-x86_64-arm-none-eabi/bin/is:$P
 
 then
  
-```
+```bash
 mkdir build
 cd build
 cmake ..
@@ -48,9 +46,11 @@ make
 Copy pico-mp3-player.uf2 to picocalc
 
 ### Notes
-Currently only supports up to 64 mp3s
+Currently only supports up to 64 mp3s, only ascii characters are legal mp3 filename.
 
-Project original address: https://git.fh-aachen.de/Terstegge/YAHAL
+#### Special thanks
+
+https://git.fh-aachen.de/Terstegge/YAHAL
 
 Thanks to YAHAL  
 Without this great project YAHAL, mp3 playback on pico would be a pain  
