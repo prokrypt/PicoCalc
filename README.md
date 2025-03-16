@@ -2,9 +2,9 @@
 
 **PicoCalc** is an open-source graphing calculator powered by **Raspberry Pi RP2040**, designed and developed by **ClockworkPi**. It provides a versatile platform for learning, programming, and expanding functionality through hardware and software modifications.
 
-<p align="center">
-  <img src="https://www.clockworkpi.com/assets/picocalc_banner.jpg" width="600">
-</p>
+
+![picocalc](https://github.com/clockworkpi/PicoCalc/blob/master/wiki/PicoCalc.png)
+
 
 ---
 
