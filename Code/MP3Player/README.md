@@ -1,0 +1,58 @@
+# Picocalc simple mp3 player
+
+## toolchain
+
+```
+arm-gnu-toolchain-13.3.rel1-x86_64-arm-none-eabi
+```
+
+YAHAL
+
+https://github.com/cuu/YAHAL.git branch picocalc
+
+## How to compile
+
+### Get YAHAL first
+```
+git clone -b picocalc https://github.com/cuu/YAHAL.git
+```
+### Get arm toolchain
+
+```
+wget https://developer.arm.com/-/media/Files/downloads/gnu/13.3.rel1/binrel/arm-gnu-toolchain-13.3.rel1-x86_64-arm-none-eabi.tar.xz
+
+tar xvf arm-gnu-toolchain-13.3.rel1-x86_64-arm-none-eabi.tar.xz
+```
+
+### Compile
+
+set **YAHAL_DIR** to the path of your local YAHAL location
+```bash
+export YAHAL_DIR=/wherever/yahal/is
+```
+set **arm-gnu-toolchain-13.3.rel1-x86_64-arm-none-eabi/bin** in your $PATH 
+
+```bash
+export PATH=/wherever/arm-gnu-toolchain-13.3.rel1-x86_64-arm-none-eabi/bin/is:$PATH
+```
+
+then
+ 
+```
+mkdir build
+cd build
+cmake ..
+make
+```
+
+Copy pico-mp3-player.uf2 to picocalc
+
+### Notes
+Currently only supports up to 64 mp3s
+
+Project original address: https://git.fh-aachen.de/Terstegge/YAHAL
+
+Thanks to YAHAL  
+Without this great project YAHAL, mp3 playback on pico would be a pain  
+
+
