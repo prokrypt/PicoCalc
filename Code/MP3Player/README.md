@@ -1,4 +1,4 @@
-# Picocalc simple mp3 player
+# PicoCalc simple mp3 player
 
 ## toolchain
 
