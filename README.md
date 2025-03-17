@@ -1,4 +1,4 @@
-# PicoCalc – A cost-effective MCU platform
+# PicoCalc – A cost-effective portable MCU terminal 
 
 
 ![picocalc](https://github.com/clockworkpi/PicoCalc/blob/master/wiki/PicoCalc.png)
