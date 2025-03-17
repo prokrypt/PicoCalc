@@ -5,7 +5,7 @@ Here is a collection of firmware source code optimized for PicoCalc. You can dow
 We would like to thank the following open source projects:  
 
 - PicoMite  
-[PicoMite](https://geoffg.net/picomite.html) is a [BASIC](https://en.m.wikipedia.org/wiki/BASIC) language interpreter based on the PRI Pico optimized version of MMBasic.
+[PicoMite](https://geoffg.net/picomite.html) is a [BASIC](https://en.m.wikipedia.org/wiki/BASIC) language interpreter based on the PRI Pico optimized version of [MMBasic](https://mmbasic.com/).
 
 - FUZIX  
 [FUXIX](https://www.fuzix.org/)  is a lightweight UNIX-like OS for 8-bit and small systems, designed for minimal resource usage.
