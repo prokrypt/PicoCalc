@@ -1,7 +1,6 @@
-# PicoCalc – Open-Source Graphing Calculator
+# PicoCalc – A cost-effective MCU platform that lets you develop applications using your favorite programming languages.
 
-**PicoCalc** is an open-source graphing calculator powered by **Raspberry Pi RP2040**, designed and developed by **ClockworkPi**. It provides a versatile platform for learning, programming, and expanding functionality through hardware and software modifications.
-
+- features an SPI screen, SD card slot, integrated onboard 8MB PSRAM, dual PWM speakers, 3.5mm phone jack and 18650 lithium battery charge & discharge management, providing the system with ultra-long battery life.  
 
 ![picocalc](https://github.com/clockworkpi/PicoCalc/blob/master/wiki/PicoCalc.png)
 
@@ -9,7 +8,7 @@
 ---
 
 ## 📌 Features
-- **RP2040-based** graphing calculator with open-source firmware.
+- **RP2040-based** with open-source firmware.
 - **Expandable hardware** with SPI/I²C/UART for external peripherals.
 - **Support for Micropython & C/C++ development** using the Raspberry Pi Pico SDK.
 - **Customizable keypad & UI**, allowing users to modify functionalities.
