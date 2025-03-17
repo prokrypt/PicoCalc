@@ -7,7 +7,7 @@
 ---
 
 ## 📌 Features
-- **RP2040-based** with open-source firmware.
+- Supports the Raspberry Pi **Pico H**/ **Pico WH** series and various compatible modules.
 - **Expandable hardware** with SPI/I²C/UART for external peripherals.
 - **Support for Micropython & C/C++ development** using the Raspberry Pi Pico SDK.
 - **Customizable keypad & UI**, allowing users to modify functionalities.
