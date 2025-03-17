@@ -1,6 +1,5 @@
-# PicoCalc – A cost-effective MCU platform that lets you develop applications using your favorite programming languages.
+# PicoCalc – A cost-effective MCU platform
 
-- features an SPI screen, SD card slot, integrated onboard 8MB PSRAM, dual PWM speakers, 3.5mm phone jack and 18650 lithium battery charge & discharge management, providing the system with ultra-long battery life.  
 
 ![picocalc](https://github.com/clockworkpi/PicoCalc/blob/master/wiki/PicoCalc.png)
 
