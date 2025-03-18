@@ -1,4 +1,4 @@
-# Setting Up the Pico SDK on Linux for PicoMite Development
+# Setting Up the Pico SDK on Linux for PicoCalc Development
 
 This guide walks you through setting up the Raspberry Pi Pico SDK on a Linux system for **PicoCalc** development. By the end, you'll have a working environment to compile and flash firmware to your Raspberry Pi Pico on PicoCalc.
 
@@ -24,6 +24,7 @@ Navigate to a workspace directory and clone the official Raspberry Pi Pico SDK:
 mkdir -p ~/pico && cd ~/pico
 git clone -b master https://github.com/raspberrypi/pico-sdk.git
 cd pico-sdk
+git checkout tags/2.0.0 -b sdk2.0.0
 git submodule update --init
 ```
 
