@@ -1,6 +1,6 @@
 # How to compile uLisp 
 
-uLisp for PicoCalc use [arduino ide](https://www.arduino.cc/en/software) to develop.
+uLisp for PicoCalc uses [Arduino IDE](https://www.arduino.cc/en/software) for development
 
 ## Install arduino-pico 
 
