@@ -62,6 +62,7 @@ Here is the screenshot for reference:
 
 ![ulisp arduino](https://github.com/clockworkpi/PicoCalc/blob/master/wiki/arduino_uLisp_compile.png)
 
+It should be noted that uLisp's default serial port speed is **9600**
 
 
 
