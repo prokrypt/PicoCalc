@@ -71,7 +71,7 @@ If successful, this will generate a `blink.uf2` file inside `build/blink/`.
 To flash the firmware to your Pico:
 
 1. Hold down the **BOOTSEL** button on the Pico.
-2. Plug it into your computer via USB.
+2. Plug it into your computer via USB then release **BOOTSEL**.
 3. The Pico should appear as a mass storage device (`RPI-RP2`).
 4. Copy the `blink.uf2` file to the Pico:
 
