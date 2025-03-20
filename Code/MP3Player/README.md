@@ -46,7 +46,7 @@ make
 Copy pico-mp3-player.uf2 to picocalc
 
 ### Notes
-Currently only supports up to 64 mp3s, only ascii characters are legal mp3 filename.
+Currently only supports up to **64** mp3 files, and only ascii characters are legal mp3 filename.
 
 #### Special thanks
 
@@ -54,5 +54,9 @@ https://git.fh-aachen.de/Terstegge/YAHAL
 
 Thanks to YAHAL  
 Without this great project YAHAL, mp3 playback on pico would be a pain  
+
+## Pre-compiled uf2
+
+https://github.com/clockworkpi/PicoCalc/blob/master/Bin/PicoCalc%20SD/firmware/PicoCalc_MP3Player_v0.5.uf2
 
 

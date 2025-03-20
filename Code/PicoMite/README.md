@@ -14,6 +14,10 @@ make
 ```
 Copy `build/PicoMite.uf2` into picocalc like every pico device
 
+# Pre-compiled uf2
+
+https://github.com/clockworkpi/PicoCalc/blob/master/Bin/PicoCalc%20SD/firmware/PicoCalc_PicoMite_v1.0.uf2
+
 
 # MMBasic License
 

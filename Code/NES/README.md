@@ -24,5 +24,8 @@ press -(select) and =(start) together, will reset the emulator to the rom select
 
 Due to the limitation of Pico memory, only ROMs with a size less than or equal to **44KB** can be used.
 
+# Pre-compiled uf2
+
+https://github.com/clockworkpi/PicoCalc/blob/master/Bin/PicoCalc%20SD/firmware/PicoCalc_NES_v1.0.uf2
 
 
