@@ -85,7 +85,7 @@ This script prepares the SD card for PicoMite, uLisp, NES emulators, and other P
 Additionally, FUZIX can use `/dev/sdb2` (32MB partition) as its root filesystem, as FUZIX supports a maximum partition size of 32MB.
 
 ## Flashing the FUZIX 32MB Image
-- Download the FUZIX image:
+- Download the FUZIX image:  
  [PicoCalc_Fuzix_v1.0.img](https://github.com/clockworkpi/PicoCalc/blob/master/Bin/PicoCalc%20SD/firmware/PicoCalc_Fuzix_v1.0.img)
 
 - Flash the image to the second partition:
