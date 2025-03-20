@@ -74,9 +74,9 @@ sudo ./partition_usb_32mb.sh sdb
 ```
 (Replace "sdb" with the correct device name for your SD card.) 
 
-***BE CARFUL ABOUT THIS***  
-***BE CARFUL ABOUT THIS***  
-***BE CARFUL ABOUT THIS***  
+***BE CAREFUL ABOUT THIS***  
+***BE CAREFUL ABOUT THIS***  
+***BE CAREFUL ABOUT THIS***  
 
 If you are not careful, all the original data on the disk will be destroyed.  
 
