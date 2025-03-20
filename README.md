@@ -11,7 +11,7 @@
 - **Expandable hardware** with SPI/I²C/UART for external peripherals.
 - **Support for Micropython & C/C++ development** using the Raspberry Pi Pico SDK.
 - **Customizable keypad & UI**, allowing users to modify functionalities.
-- **USB-C powered**, with optional battery support.
+- **USB Type-C** for power and multifunctional design, default is Pico’s serial port.
 - **Compatible with 3D-printed cases**, making it an ideal DIY project.
 
 ---
