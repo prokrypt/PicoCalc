@@ -53,6 +53,19 @@ sudo ./partition_usb_32mb.sh sdb
 ```
 *(Replace `sdb` with your actual SD card device.)*
 
+### Flashing the FUZIX 32MB Image
+- Download the FUZIX image:  
+ [PicoCalc_Fuzix_v1.0.img](https://github.com/clockworkpi/PicoCalc/blob/master/Bin/PicoCalc%20SD/firmware/PicoCalc_Fuzix_v1.0.img)
+
+- Flash the image to the second partition:
+```bash
+sudo dd if=filesystem.img of=/dev/sdb2
+```
+
+Please check the wiki for details  
+
+https://github.com/clockworkpi/PicoCalc/wiki/How-to-Create-an-Official-PicoCalc-SD-Card
+
 ## Notes
 - The **USB Type-C port** is the default **serial port** for **PicoCalc**, not the Micro USB port.
 - FUZIX supports a maximum **32MB** root filesystem.
