@@ -50,6 +50,12 @@ and comment out
 ```
 in  `~/Arduino/libraries/TFT_eSPI/User_Setup_Select.h`
 
+Install `arduino_picocalc_kbd` for interacting with picocalc's keyboard via i2c.  
+```
+cd ~/Arduino/libraries
+git clone https://github.com/cuu/arduino_picocalc_kbd.git
+```
+
 ## Compile and upload
 
 In arduino ide ,config board and other arguments  
