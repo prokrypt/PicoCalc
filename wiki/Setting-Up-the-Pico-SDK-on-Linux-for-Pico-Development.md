@@ -8,6 +8,7 @@ Before getting started, make sure you have the following:
 - A Linux system (Ubuntu, Debian, etc.)
 - Raspberry Pi Pico 
 - USB cable for flashing firmware
+- USB Type-C cable for running
 - Basic familiarity with the terminal
 
 ## Step 1: Install Required Dependencies
@@ -82,8 +83,11 @@ To flash the firmware to your Pico:
 The Pico will automatically reboot and start running the Blink program.
 
 ## Step 7: Verify Everything Works
-To check if your Pico is working correctly, you can use `minicom` or `screen` to monitor serial output:
+To check if your Pico is working correctly, unplug micro-usb, plug PicoCalc to your computer via USB Type-C ,and press Power On
 
+Note: On PicoCalc, the default serial port of the Pico is the **USB Type-C** port, not its built-in Micro USB port.  
+
+you can use `minicom` or `screen` to monitor serial output:
 ```bash
 sudo apt install -y minicom
 minicom -b 115200 -o -D /dev/ttyACM0
