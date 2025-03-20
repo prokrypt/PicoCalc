@@ -11,4 +11,6 @@ cmake ..
 make  
 ```
 
+## Notes
 
+ On PicoCalc, the default serial port of the Pico is the USB Type-C port, not its built-in Micro USB port.
