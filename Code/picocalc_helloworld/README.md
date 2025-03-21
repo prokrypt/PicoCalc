@@ -46,3 +46,16 @@ So here is the standard running procedures:
 - Plug the pico via USB Type-C
 - Press Power On on Top of the PicoCalc
 
+
+If your firmware includes serial output, you can monitor it using **minicom** or **screen**:   
+```bash
+screen /dev/ttyACM0 115200
+```
+
+(Replace /dev/ttyACM0 with the correct serial port for your Pico.)  
+
+The serial monitor of **Arduino IDE** is another great choice for PicoCalc serial output on both Linux and Windows.
+
+
+
+
