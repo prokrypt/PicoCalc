@@ -14,7 +14,7 @@ We would like to thank the following open source projects:
 [shapones](https://github.com/shapoco/shapones) is an NES emulator for programming study on pico.
 
 - uLisp  
-[uLisp](www.ulisp.com/) A version of the Lisp programming language for ARM-based boards.
+[uLisp](http://www.ulisp.com/) A version of the Lisp programming language for ARM-based boards.
 
 - MP3Player   
 A simple MP3 player based on [YAHAL](https://git.fh-aachen.de/Terstegge/YAHAL) which is a Yet Another Hardware Abstraction Library.
