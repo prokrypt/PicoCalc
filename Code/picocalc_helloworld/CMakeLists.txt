@@ -15,9 +15,22 @@ include_directories(
 add_subdirectory(i2ckbd)
 add_subdirectory(lcdspi)
 
+add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/rp2040-psram rp2040-psram)
+
 add_executable(picocalc_helloworld
 	main.c
 	)
+
+##picocalc spi0
+target_compile_definitions(picocalc_helloworld PRIVATE
+    PSRAM_MUTEX=1
+    #PSRAM_SPINLOCK=0
+    PSRAM_ASYNC=0
+    PSRAM_PIN_CS=20
+    PSRAM_PIN_SCK=21
+    PSRAM_PIN_MOSI=2
+    PSRAM_PIN_MISO=3
+)
 
 target_link_libraries(picocalc_helloworld
     pico_stdlib
@@ -33,7 +46,7 @@ target_link_libraries(picocalc_helloworld
     pico_multicore
 	i2ckbd
 	lcdspi
-
+    rp2040-psram
 	)
 
 pico_enable_stdio_usb(picocalc_helloworld 0)

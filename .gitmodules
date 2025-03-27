@@ -1,0 +1,3 @@
+[submodule "Code/picocalc_helloworld/rp2040-psram"]
+	path = Code/picocalc_helloworld/rp2040-psram
+	url = https://github.com/polpo/rp2040-psram.git
