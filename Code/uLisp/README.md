@@ -29,9 +29,12 @@ git clone https://github.com/technoblogy/ulisp-arm.git
 
 cd uLisp-arm
 
-git reset --hard 97e61151dfb236311089abd3e89029e367613f70 
+git reset --hard 97e61151dfb236311089abd3e89029e367613f70  #Switch to the required version
 
-git apply  uLisp.patch
+git clone  https://github.com/clockworkpi/PicoCalc.git #get patch code
+
+git apply  PicoCalc/Code/uLisp/uLisp.patch
+
 ```
 
 Install **TFT_eSPI 2.5.34** in arduino ide and patch it
