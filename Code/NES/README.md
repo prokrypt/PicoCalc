@@ -1,9 +1,15 @@
 # How to compile NES emulator
+
+All the operations in this document are performed in a Linux environment. A basic understanding of Linux, as well as familiarity with Git and pico sdk  development, is required.
+
 ```bash
 git clone https://github.com/shapoco/shapones.git
 
 cd shapones
-git apply shapones.patch
+git clone  https://github.com/clockworkpi/PicoCalc.git #get patch code
+
+git apply PicoCalc/Code/NES/shapones.patch
+
 cd samples/v3/
 mkdir build
 cd build

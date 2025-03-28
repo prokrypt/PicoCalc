@@ -1,10 +1,14 @@
 # How to compile PicoMite(MMBasic)
 
+All the operations in this document are performed in a Linux environment. A basic understanding of Linux, as well as familiarity with Git and pico sdk  development, is required.
+
+
 ```bash
 git clone https://github.com/cuu/PicoMite.git
 cd PicoMite
 
-git apply PicoMite.patch
+git clone  https://github.com/clockworkpi/PicoCalc.git #get patch code
+git apply PicoCalc/Code/PicoMite/PicoMite.patch
 
 export PICO_SDK_PATH=/to/where/your/pico/sdk/is
 mkdir build
