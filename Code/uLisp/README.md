@@ -1,6 +1,8 @@
 # How to compile uLisp 
 
-uLisp for PicoCalc uses [Arduino IDE](https://www.arduino.cc/en/software) for development
+uLisp for PicoCalc uses [Arduino IDE](https://www.arduino.cc/en/software) for development  
+
+All the operations in this document are performed in a Linux environment. A basic understanding of Linux, as well as familiarity with Git and Arduino development, is required. 
 
 ## Install arduino-pico 
 
