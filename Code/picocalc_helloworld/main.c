@@ -6,10 +6,11 @@
 #include <string.h>
 #include "pico/stdlib.h"
 #include "hardware/gpio.h"
-
+#include "hardware/clocks.h"
 #include "i2ckbd.h"
 #include "lcdspi.h"
 #include "psram_spi.h"
+#include "pwm_sound.h"
 
 const uint LEDPIN = 25;
 psram_spi_inst_t* async_spi_inst;
@@ -174,9 +175,39 @@ int psram_test(psram_spi_inst_t*psram_spi){
     lcd_print_string("PSRAM testing done\n");
 }
 
+
+#include "sample.h"
+int wav_position = 0;
+
+void pwm_interrupt_handler() {
+    int slice_l = pwm_gpio_to_slice_num(AUDIO_PIN_L);
+    int slice_r = pwm_gpio_to_slice_num(AUDIO_PIN_R);
+
+    pwm_clear_irq(slice_l);
+    pwm_clear_irq(slice_r);
+
+    if (wav_position < (WAV_DATA_LENGTH << 3) - 1) {
+        pwm_set_chan_level(pwm_gpio_to_slice_num(AUDIO_PIN_L), PWM_CHAN_A, WAV_DATA[wav_position >> 3]);
+        pwm_set_chan_level(pwm_gpio_to_slice_num(AUDIO_PIN_R), PWM_CHAN_B, WAV_DATA[wav_position >> 3]);
+
+        wav_position++;
+    } else {
+        wav_position = 0; // Stop
+        pwm_set_chan_level(slice_l, PWM_CHAN_A, 0);
+        pwm_set_chan_level(slice_r, PWM_CHAN_B, 0);
+
+        pwm_set_irq_enabled(slice_l, false);
+        pwm_set_irq_enabled(slice_r, false);
+        irq_remove_handler(PWM_IRQ_WRAP, pwm_interrupt_handler);
+        //
+    }
+}
+
 int main() {
 
     stdio_init_all();
+    set_sys_clock_khz(133000, true);
+
 
     init_i2c_kbd();
     lcd_init();
@@ -190,10 +221,13 @@ int main() {
     sleep_ms(500);
     gpio_put(LEDPIN, 0);
 
-    psram_spi_inst_t psram_spi = psram_spi_init_clkdiv(pio1, -1,1.0f,true);
+    init_pwm(pwm_interrupt_handler);
 
+    psram_spi_inst_t psram_spi = psram_spi_init_clkdiv(pio1, -1,1.0f,true);
     psram_test(&psram_spi);
+
     while (1) {
+
         int c = lcd_getc(0);
         if(c != -1 && c > 0) {
             lcd_putc(0,c);

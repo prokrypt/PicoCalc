@@ -14,7 +14,7 @@ include_directories(
 
 add_subdirectory(i2ckbd)
 add_subdirectory(lcdspi)
-
+add_subdirectory(pwm_sound)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/rp2040-psram rp2040-psram)
 
 add_executable(picocalc_helloworld
@@ -47,6 +47,7 @@ target_link_libraries(picocalc_helloworld
 	i2ckbd
 	lcdspi
     rp2040-psram
+	pwm_sound
 	)
 
 pico_enable_stdio_usb(picocalc_helloworld 0)
