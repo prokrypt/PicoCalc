@@ -3,9 +3,6 @@
 This repository provides a template demo application utilizing the LVGL graphics engine on the PicoCalc.
 
 
-![LVGL Demo](./img/lvgl_demo.jpg)
-
-
 ### Tasks
 #### Completed
 - [x] Added support for both Pico 1 and Pico 2 builds.
