@@ -1,30 +1,41 @@
 # PicoCalc LVGL Graphics Demo
 
-This is a template demo app using LVGL graphic engine on PicoCalc. 
+This repository provides a template demo application utilizing the LVGL graphics engine on the PicoCalc.
 
-### TODOs
-#### Done
-- [x] Project support for both Pico1/2 Builds
-- [x] Initial LVGL Project support
-- [x] I2C Keyboard Porting for LVGL
-- [x] SPI Display Porting for LVGL
-- [x] Bitmap Driver flushing
-#### TODO
-- [ ] Improve Keyboard event processing
 
-## Building
-``` shell
-# onetime, cloning latest lvgl submodule
+![LVGL Demo](./img/lvgl_demo.jpg)
+
+
+### Tasks
+#### Completed
+- [x] Added support for both Pico 1 and Pico 2 builds.
+- [x] Integrated the LVGL project framework.
+- [x] Ported I2C keyboard functionality for LVGL.
+- [x] Implemented SPI display support for LVGL.
+- [x] Enabled bitmap driver flushing.
+
+#### Todos
+- [ ] eEnhance keyboard event processing.
+
+## Build Instructions
+```bash
+# Clone the LVGL submodule (one-time setup)
 git submodule update --init --recursive
 
+# ------------------------------
+# Navigate to the demo project directory
+cd {path_to_this_demo}
 
-cd {to_this_demo_path}
-
+# Create and enter the build directory
 mkdir build
 cd build
-export PICO_SDK_PATH=/where/pico-sdk/is
+
+# Set the PICO SDK path
+export PICO_SDK_PATH=/path/to/pico-sdk
+
+# Configure and build the project
 cmake ..
-make  
+make
 ```
 
 
