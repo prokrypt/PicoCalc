@@ -1,3 +1,4 @@
 [submodule "lvgl"]
 	path = Code/picocalc_lvgl_graphics_demo/lib/lvgl/lvgl
 	url = https://github.com/lvgl/lvgl.git
+	branch = release/v9.2
