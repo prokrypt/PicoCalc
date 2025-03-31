@@ -89,6 +89,7 @@
  #define LV_USE_SWITCH    1
  #define LV_USE_TABLE     1
  #define LV_USE_TEXTAREA  1
+ #define LV_USE_TABVIEW 1
  /* Add other widgets as needed */
  
  /*===================
@@ -96,6 +97,21 @@
   *===================*/
  #define LV_USE_GRID 1
  #define LV_USE_FLEX 1
+
+/*===================
+  * ANIMATION SETTINGS
+  *===================*/
+#define LV_USE_ANIMATION 0
+#define LV_USE_ANIM_IMG 0
+#define LV_USE_ANIM_SCALE 0
+#define LV_USE_ANIM_PATH 0
+#define LV_USE_ANIM_TIMELINE 0
+#define LV_USE_ANIM_CUSTOM 0
+#define LV_USE_ANIM_REPEAT 0
+#define LV_USE_ANIM_PAUSE 0
+#define LV_USE_ANIM_REVERSE 0
+#define LV_USE_ANIM_DELAY 0
+#define LV_USE_ANIM_SPEED 0
 
  /*===================
  * DEMO USAGE
