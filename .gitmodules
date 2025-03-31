@@ -1,4 +1,9 @@
+[submodule "Code/picocalc_helloworld/rp2040-psram"]
+	path = Code/picocalc_helloworld/rp2040-psram
+	url = https://github.com/polpo/rp2040-psram.git
+
 [submodule "lvgl"]
 	path = Code/picocalc_lvgl_graphics_demo/lib/lvgl/lvgl
 	url = https://github.com/lvgl/lvgl.git
 	branch = release/v9.2
+

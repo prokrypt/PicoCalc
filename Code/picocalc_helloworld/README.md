@@ -1,6 +1,6 @@
 # PicoCalc Hello World
 
-Demonstrate how to use spi screen and i2c keyboard on PicoCalc.
+Demonstrate how to use spi screen, i2c keyboard and psram on PicoCalc.
 
 ## Building
 ```

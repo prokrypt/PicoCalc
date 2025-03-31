@@ -1,5 +1,7 @@
 # PicoCalc simple mp3 player
 
+All the operations in this document are performed in a Linux environment. A basic understanding of Linux, as well as familiarity with Git and cross-compilation  development, is required.
+
 ## toolchain
 
 ```
@@ -10,6 +12,12 @@ YAHAL
 https://github.com/cuu/YAHAL.git branch picocalc
 
 ## How to compile
+
+### Get this code
+```
+git clone  https://github.com/clockworkpi/PicoCalc.git
+
+```
 
 ### Get YAHAL first
 ```
