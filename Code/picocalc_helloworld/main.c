@@ -204,10 +204,14 @@ void pwm_interrupt_handler() {
 }
 
 int main() {
-
-    stdio_init_all();
+    char buf[64];
     set_sys_clock_khz(133000, true);
+    stdio_init_all();
 
+    uart_init(uart0, 115200);
+
+    uart_set_format(uart0, 8, 1, UART_PARITY_NONE);  // 8-N-1
+    uart_set_fifo_enabled(uart0, false);
 
     init_i2c_kbd();
     lcd_init();
@@ -225,7 +229,17 @@ int main() {
 
     psram_spi_inst_t psram_spi = psram_spi_init_clkdiv(pio1, -1,1.0f,true);
     psram_test(&psram_spi);
+    // if we need battery information
+    // ** we should power on the picocalc only with batteries
+    // ** then plug the type c cable
+    // otherwise we won't get working battery infos
 
+    sleep_ms(2000);
+    int bat_pcnt = read_battery();
+
+    sprintf(buf,"battery percent is %d\n",bat_pcnt>>8);
+    printf(buf);
+    lcd_print_string(buf);
     while (1) {
 
         int c = lcd_getc(0);
