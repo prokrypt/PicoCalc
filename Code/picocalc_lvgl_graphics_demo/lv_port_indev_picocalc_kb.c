@@ -112,18 +112,119 @@ static void keypad_read(lv_indev_t * indev_drv, lv_indev_data_t * data)
     /*Get whether the a key is pressed and save the pressed key*/
     int r = keypad_get_key();
     
+    uint32_t act_key = 0;
     if (r > 0) {
         printf("Key event %x\n", r);
-        
-        uint32_t act_key = 0;
-        /*Translate the keys to LVGL control characters according to your key definitions*/
-        switch(r) {
-            case 0xb5:
+
+
+        /* Translate the keys to LVGL control characters according to your key definitions */
+        switch (r) {
+            case 0xb5: // Arrow Up
                 act_key = LV_KEY_NEXT;
                 break;
-            case 0xb6:
+            case 0xb6: // Arrow Down
                 act_key = LV_KEY_PREV;
                 break;
+            case 0xb4: // Arrow Left
+            case 0xb7: // Arrow Right
+                printf("WARN: ARROW Left/Right key not mapped\n");
+                act_key = 0;
+                break;
+
+            // Special Keys
+            // Row 1
+            case 0x81: case 0x82: case 0x83: case 0x84: case 0x85:
+            case 0x86: case 0x87: case 0x88: case 0x89: case 0x90:// F1-F10 Keys
+                printf("WARN: Function keys not mapped\n");
+                act_key = 0;
+                break;
+
+            // Row 2
+            case 0xB1: // ESC
+                act_key = LV_KEY_ESC;
+                break;
+            case 0x09: // TAB
+                printf("WARN: Tab key not mapped\n");
+                act_key = 0;
+                break;
+            case 0xC1: // Caps Lock
+                printf("WARN: CapLock key not mapped\n");
+                act_key = 0;
+                break;
+            case 0xD4: // DEL
+                act_key = LV_KEY_DEL;
+                break;
+            case 0x08: // Backspace
+                act_key = LV_KEY_BACKSPACE;
+                break;
+
+            // Row 2 Layer2
+            case 0xD0: // brk
+                printf("WARN: Brk key not mapped\n");
+                act_key = 0;
+                break;
+            case 0xD2: // Home
+                act_key = LV_KEY_HOME;
+                break;
+            case 0xD5: // End
+                act_key = LV_KEY_END;
+                break;
+
+            // Row 3
+            case 0x60: case 0x2F: case 0x5C: case 0x2D: case 0x3D:
+            case 0x5B: case 0x5D: // `/\-=[] Keys
+                act_key = r;
+                break;
+
+            // Row 3 Layer2
+            case 0x7E: act_key = '~'; break;
+            case 0x3F: act_key = '?'; break;
+            case 0x7C: act_key = '|'; break;
+            case 0x5F: act_key = '_'; break;
+            case 0x2B: act_key = '+'; break;
+            case 0x7B: act_key = '{'; break;
+            case 0x7D: act_key = '}'; break;
+
+            // Row 4
+            case 0x30: case 0x31: case 0x32: case 0x33: case 0x34:
+            case 0x35: case 0x36: case 0x37: case 0x38: case 0x39: // 0-9 Keys
+                act_key = r;
+                break;
+
+            // Row 4 Layer2
+            case 0x21: case 0x40: case 0x23: case 0x24: case 0x25:
+            case 0x5E: case 0x26: case 0x2A: case 0x28: case 0x29: // !@#$%^&*() Keys
+                act_key = r;
+                break;
+
+            // Row 5 Layer2
+            case 0xD1: // Insert
+                printf("WARN: Insert key not mapped\n");
+                act_key = 0;
+                break;
+
+            // Row 7 Layer 2
+            case 0x3C: act_key = '<'; break;
+            case 0x3E: act_key = '>'; break;
+
+            // Row 8
+            case 0x3B: case 0x27: case 0x3A: case 0x22: // ;:'"" Keys
+                act_key = r;
+                break;
+            case 0xA5: // CTL
+                printf("WARN: CTL key not mapped\n");
+                act_key = 0;
+                break;
+            case 0x20: // SPACE
+                act_key = r;
+                break;
+            case 0xA1: // ALT
+                printf("WARN: ALT key not mapped\n");
+                act_key = 0;
+                break;
+            case 0xA2: case 0xA3: // RIGHT/LEFT SHIFT
+                break;
+
             default:
                 act_key = r;
                 break;
@@ -133,8 +234,7 @@ static void keypad_read(lv_indev_t * indev_drv, lv_indev_data_t * data)
         data->key = act_key;
         last_key = act_key;
         pending_release = true;
-    }
-    else {
+    } else {
         data->state = LV_INDEV_STATE_RELEASED;
         data->key = 0;
     }

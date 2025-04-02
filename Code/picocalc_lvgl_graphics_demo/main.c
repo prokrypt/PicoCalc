@@ -29,6 +29,16 @@
 
 const unsigned int LEDPIN = 25;
 
+
+
+
+// The event handler
+static void textarea_event_handler(lv_event_t *e) {
+    lv_obj_t *textarea = lv_event_get_target(e);
+    printf("Textarea: '%s'\n", lv_textarea_get_text(textarea));
+}
+
+
 int main()
 {
     // Initialize standard I/O
@@ -56,14 +66,19 @@ int main()
     // Create a screen
     lv_obj_t *screen = lv_obj_create(NULL);
 
-    // Create a text box
-    lv_obj_t *textbox = lv_textarea_create(screen);
-    lv_obj_set_size(textbox, 200, 50); // Set size of the text box
-    lv_obj_align(textbox, LV_ALIGN_CENTER, 0, 0); // Center the text box on the screen
-
+    // The textarea
+    lv_obj_t *input = lv_textarea_create(screen);
+    lv_obj_set_width(input, 320);
+    lv_obj_set_height(input, LV_SIZE_CONTENT);    /// 20
+    lv_obj_set_x(input, -10);
+    lv_obj_set_y(input, 91);
+    lv_obj_set_align(input, LV_ALIGN_CENTER);
     // Enable keyboard input for the text box
-    lv_textarea_set_placeholder_text(textbox, "Enter text...");
-    lv_textarea_set_one_line(textbox, true); // Set to single-line mode
+    lv_textarea_set_placeholder_text(input, "Input:");
+    lv_textarea_set_one_line(input, true);
+    lv_obj_set_style_anim_time(input, 5000, LV_PART_CURSOR|LV_STATE_FOCUSED);
+    // Textarea event handler
+    lv_obj_add_event_cb(input, textarea_event_handler, LV_EVENT_READY, input);
 
     // Load the screen
     lv_scr_load(screen);
@@ -73,7 +88,7 @@ int main()
     while (1)
     {
         lv_timer_handler();
-        lv_tick_inc(5); // Increment LVGL tick by 5 milliseconds
-        sleep_ms(1); // Sleep for 5 milliseconds}
+        lv_tick_inc(20); // Increment LVGL tick by 5 milliseconds
+        sleep_ms(5); // Sleep for 5 milliseconds}
     }
 }
