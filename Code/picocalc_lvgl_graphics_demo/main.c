@@ -68,11 +68,9 @@ int main()
 
     // The textarea
     lv_obj_t *input = lv_textarea_create(screen);
-    lv_obj_set_width(input, 320);
+    lv_obj_set_width(input, 280);
     lv_obj_set_height(input, LV_SIZE_CONTENT);    /// 20
-    lv_obj_set_x(input, -10);
-    lv_obj_set_y(input, 91);
-    lv_obj_set_align(input, LV_ALIGN_CENTER);
+    lv_obj_center(input);
     // Enable keyboard input for the text box
     lv_textarea_set_placeholder_text(input, "Input:");
     lv_textarea_set_one_line(input, true);
