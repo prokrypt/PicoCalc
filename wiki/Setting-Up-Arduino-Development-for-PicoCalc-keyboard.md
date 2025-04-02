@@ -73,3 +73,87 @@ DIP switches are on the back of picocalc mainboard
 * STM32 MCU based boards 2.10.0
 * XPowersLib 0.2.3 (cuu mod)
 
+
+# Flash pre-compiled firmware 
+
+- Put DIP 1 ON
+- Connect PicoCalc with USB Type-C cable
+- sudo stm32flash -w Bin/PicoCalc_kbd_firmware_v1.1.bin -v -S 0x08000000 /dev/ttyUSB0
+- Put DIP 1 OFF
+
+assume we got **/dev/ttyUSB0** as port of PicoCalc   
+here is the sample correct writing firmware logs from linux:   
+```
+$ sudo stm32flash -w PicoCalc_kbd_firmware_v1.1.bin -v -S 0x08000000 /dev/ttyUSB0
+stm32flash 0.7
+
+http://stm32flash.sourceforge.net/
+
+Using Parser : Raw BINARY
+Location     : 0x8000000
+Size         : 65536
+Interface serial_posix: 57600 8E1
+Version      : 0x22
+Option 1     : 0x00
+Option 2     : 0x00
+Device ID    : 0x0410 (STM32F10xxx Medium-density)
+- RAM        : Up to 20KiB  (512b reserved by bootloader)
+- Flash      : Up to 128KiB (size first sector: 4x1024)
+- Option RAM : 16b
+- System RAM : 2KiB
+Write to memory
+Erasing memory
+Wrote and verified address 0x08010000 (100.00%) Done.
+
+```
+## STM32CubeProgrammer
+On other platform,like windows or Mac  
+
+we can use the official tool [STM32CubeProgrammer](https://www.st.com/en/development-tools/stm32cubeprog.html) to do the flashing job  
+
+- Put DIP 1 ON
+- Connect PicoCalc with USB Type-C cable
+- Open STM32CubeProgrammer with right permissions,on linux maybe need sudo,on windows maybe need the Administrator rights 
+- Press **Connect**
+- Open file ,load PicoCalc_kbd_firmware_v1.1.bin
+- Press **Download**
+- Press Disconnect
+- Put DIP 1 OFF
+- Power On PicoCalc
+
+here is the sample screenshot:  
+
+![dips](https://github.com/clockworkpi/PicoCalc/blob/master/wiki/stm32cube_flash_kbd_firmware.png)
+
+
+## Extracting firmware
+
+Also if We want extract firmware from keyboard,here is the steps:  
+
+- Put DIP 1 ON
+- Connect PicoCalc with USB Type-C cable
+- sudo stm32flash -r PicoCalc_kbd_firmware_v1.1.bin -S 0x08000000:65536 /dev/ttyUSB0
+- Put DIP 1 OFF
+
+here is sample correct extracting logs from linux :  
+```
+$ sudo stm32flash -r PicoCalc_firmware_v1.1.bin -S 0x08000000:65536 /dev/ttyUSB0
+stm32flash 0.7
+
+http://stm32flash.sourceforge.net/
+
+Interface serial_posix: 57600 8E1
+Version      : 0x22
+Option 1     : 0x00
+Option 2     : 0x00
+Device ID    : 0x0410 (STM32F10xxx Medium-density)
+- RAM        : Up to 20KiB  (512b reserved by bootloader)
+- Flash      : Up to 128KiB (size first sector: 4x1024)
+- Option RAM : 16b
+- System RAM : 2KiB
+Memory read
+Read address 0x08010000 (100.00%) Done.
+```
+
+
+
