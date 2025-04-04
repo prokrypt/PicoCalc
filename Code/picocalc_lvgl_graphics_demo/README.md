@@ -10,9 +10,8 @@ This repository provides a template demo application utilizing the LVGL graphics
 - [x] Ported I2C keyboard functionality for LVGL.
 - [x] Implemented SPI display support for LVGL.
 - [x] Enabled bitmap driver flushing.
+- [x] Enhanced keyboard event processing.
 
-#### Todos
-- [ ] eEnhance keyboard event processing.
 
 ## Build Instructions
 ```bash
