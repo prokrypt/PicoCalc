@@ -13,10 +13,24 @@ index 4cc9df7a8..2ea26cb6a 100644
  
  /* for platforms which support multiple SD cards */
 diff --git a/Kernel/platform/platform-rpipico/CMakeLists.txt b/Kernel/platform/platform-rpipico/CMakeLists.txt
-index 0081014c4..1d0e40c8f 100644
+index 0081014c4..794f85357 100644
 --- a/Kernel/platform/platform-rpipico/CMakeLists.txt
 +++ b/Kernel/platform/platform-rpipico/CMakeLists.txt
-@@ -28,6 +28,8 @@ add_executable(fuzix
+@@ -7,11 +7,13 @@ project(fuzix C CXX ASM)
+ set(CMAKE_C_STANDARD 11)
+ set(CMAKE_BUILD_TYPE Debug)
+ set(PICO_COPY_TO_RAM 1)
++option(TOTALMEM "specify how much TOTALMEM is present" 0)
+ 
+ add_compile_definitions(
+ 		PICO_HEAP_SIZE=0x0
+ 		PICO_NO_BINARY_INFO=1
+ 		PICO_TIME_DEFAULT_ALARM_POOL_DISABLED
++    TOTALMEM=${TOTALMEM}
+ 		)
+ 
+ pico_sdk_init()
+@@ -28,6 +30,8 @@ add_executable(fuzix
  	devices.c
  	devflash.c
  	devsdspi.c
@@ -25,7 +39,7 @@ index 0081014c4..1d0e40c8f 100644
  	devtty.c
  	elf.c 
  	main.c
-@@ -81,6 +83,7 @@ target_link_libraries(fuzix
+@@ -81,6 +85,7 @@ target_link_libraries(fuzix
  	pico_multicore
  	hardware_flash
  	hardware_spi
@@ -33,8 +47,41 @@ index 0081014c4..1d0e40c8f 100644
  	tinyusb_device
  )
  
+diff --git a/Kernel/platform/platform-rpipico/Makefile b/Kernel/platform/platform-rpipico/Makefile
+index 1f1fdd280..463882cf4 100644
+--- a/Kernel/platform/platform-rpipico/Makefile
++++ b/Kernel/platform/platform-rpipico/Makefile
+@@ -8,6 +8,19 @@ ifndef SUBTARGET
+ SUBTARGET=pico # set default subtarget
+ endif
+ 
++ifeq ($(SUBTARGET),pico)
++TOTALMEM=160
++endif
++ifeq ($(SUBTARGET),pico_w)
++TOTALMEM=160
++endif
++ifeq ($(SUBTARGET),pico2)
++TOTALMEM=320
++endif
++ifeq ($(SUBTARGET),pico2_w)
++TOTALMEM=320
++endif
++
+ PICOTOOLFLAGS= --family rp2040
+ ifeq (${SUBTARGET}, pico2)
+ PICOTOOLFLAGS= --family data
+@@ -29,7 +42,7 @@ build/fuzix.elf: ../../version.c build/Makefile
+ 
+ build/Makefile: CMakeLists.txt $(wildcard ../../*.[chS]) $(wildcard ../../*/*.[chS])
+ 	mkdir -p build
+-	(cd build && cmake -DPICO_BOARD=${SUBTARGET} ..)
++	(cd build && VERBOSE=1 cmake -DPICO_BOARD=${SUBTARGET} -DTOTALMEM=${TOTALMEM} ..)
+ 
+ image:: world
+ 	./update-flash.sh
 diff --git a/Kernel/platform/platform-rpipico/config.h b/Kernel/platform/platform-rpipico/config.h
-index e7260099d..7328df2f7 100644
+index e7260099d..a04331090 100644
 --- a/Kernel/platform/platform-rpipico/config.h
 +++ b/Kernel/platform/platform-rpipico/config.h
 @@ -9,10 +9,15 @@
@@ -68,7 +115,7 @@ index e7260099d..7328df2f7 100644
  /* We have a GPIO interface */
  #define CONFIG_DEV_GPIO
  /* Enable to make ^Z dump the inode table for debug */
-@@ -65,7 +70,7 @@
+@@ -65,14 +70,16 @@
  #undef CONFIG_FONT8X8
  
  /* Built in NAND flash. Warning, it's unstable. */
@@ -77,7 +124,17 @@ index e7260099d..7328df2f7 100644
  
  /* Program layout */
  
-@@ -124,7 +129,8 @@ extern uint8_t progbase[USERMEM];
+ #define UDATA_BLKS  3
+ #define UDATA_SIZE  (UDATA_BLKS << BLKSHIFT)
+ 
+-#define TOTALMEM 160
++#if TOTALMEM == 0
++#error TOTALMEM should have been defined via cmake
++#endif
+ #define NETMEM 0
+ 
+ #ifdef CONFIG_NET
+@@ -124,7 +131,8 @@ extern uint8_t progbase[USERMEM];
  #define DEV_UART_1_CTS_PIN 8
  #define DEV_UART_1_RTS_PIN 9
  #define NUM_DEV_TTY_USB 4 /* min 1 max 4. */
@@ -87,7 +144,7 @@ index e7260099d..7328df2f7 100644
  #define DEV_USB_DETECT_TIMEOUT 5000 /* (ms) Total timeout time to detect USB host connection*/
  #define DEV_USB_INIT_TIMEOUT 2000 /* (ms) Total timeout to try not swallow messages */
  
-@@ -140,10 +146,15 @@ extern uint8_t progbase[USERMEM];
+@@ -140,10 +148,15 @@ extern uint8_t progbase[USERMEM];
  #define swap_map(x) ((uint8_t*)(x))
  
  /* Prevent name clashes wish the Pico SDK */
@@ -2783,10 +2840,10 @@ index 0c8112c7d..d96cb7638 100644
          cmdline = NULL;                   /* ignore cmdline if get_root_dev() is called again */
  
 diff --git a/README.md b/README.md
-index 78d522661..cec3c7992 100644
+index 78d522661..4a7e3d905 100644
 --- a/README.md
 +++ b/README.md
-@@ -1,122 +1,34 @@
+@@ -1,122 +1,60 @@
 -** ENGINEERING WORK IN PROGRESS **
 +# FUZIX on PicoCalc
  
@@ -2799,53 +2856,35 @@ index 78d522661..cec3c7992 100644
 +to boot on a PicoCalc device.
  
 -**FuzixOS**: Because Small Is Beautiful
-+It currently builds and publishes images for
-+the pico2 and pico_w.
- 
+-
 -This is the initial public tree for the FuzixOS project. It is not yet useful although you can build and boot it and run
 -test application code. A lot of work is needed on the utilities and libraries.
-+The patchset was originally taken from https://github.com/clockworkpi/PicoCalc
- 
+-
 -# FUZIX
-+## Downloads
- 
+-
 -FUZIX is a fusion of various elements from the assorted UZI forks and
 -branches beaten together into some kind of semi-coherent platform and then
 -extended from V7 to somewhere in the SYS3 to SYS5.x world with bits of POSIX
 -thrown in for good measure. Various learnings and tricks from ELKS and from
 -OMU also got blended in
-+[Download](https://github.com/wez/FUZIX/releases/tag/clockworkpi-continuous)
- 
+-
 -# Pre-built images
-+## Installation
- 
+-
 -Some pre-built filesystems are now available on www.fuzix.org, and other
 -images should follow in time.
-+* Attach a USB cable to the pico
-+* Hold down the bootsel button and power cycle the pico
-+* Copy the fuzix.uf2 to RP mount point
- 
+-
 -# Supporting Fuzix
-+To update the filesystem image on your SD card, you can use dd to put it on
-+the second partition:
- 
+-
 -As this gets asked a bit. The best way to support Fuzix is to contribute
 -code and/or docs. It's really an art project in computing. 
-+```console
-+$ dd if=filesystem.img of=/dev/sdb2 oflag=direct bs=8192 status=progress
-+```
- 
+-
 -If you want to spend money then please just buy a homeless person a pizza or a
 -coat or something like that. If you are changing electricity suppliers in the
 -UK to Octopus then signing up through this link gets both of us £50. Not an
 -endorsement, Octopus merely suck less than other UK energy suppliers.
-+Make sure to change the `of` to match your device and ensure that you
-+are writing it to the correct device!  You will typically need root
-+privileges to perform that dd command.
- 
+-
 -https://share.octopus.energy/amber-calf-514
-+See [the PicoCalc repo for more information](https://github.com/clockworkpi/PicoCalc/tree/master/Bin/PicoCalc%20SD#flashing-the-fuzix-32mb-image)
- 
+-
 -## Tools
 -
 -For the 6800, 8080, 8085, Z80 and Z180 the code is now built with the Fuzix C
@@ -2931,3 +2970,57 @@ index 78d522661..cec3c7992 100644
 -
 -[travis-image]: https://travis-ci.org/EtchedPixels/FUZIX.png?branch=master
 -[travis-url]: https://travis-ci.org/EtchedPixels/FUZIX
++It currently builds and publishes images for
++the pico2 and pico_w.
++
++The patchset was originally taken from https://github.com/clockworkpi/PicoCalc
++
++## Downloads
++
++[Download](https://github.com/wez/FUZIX/releases/tag/clockworkpi-continuous)
++
++## Installation
++
++* Attach a USB cable to the pico
++* Hold down the bootsel button and power cycle the pico
++* Copy the fuzix.uf2 to RP mount point
++
++To update the filesystem image on your SD card, you can use dd to put it on
++the second partition:
++
++```console
++$ dd if=filesystem.img of=/dev/sdb2 oflag=direct bs=8192 status=progress
++```
++
++Make sure to change the `of` to match your device and ensure that you
++are writing it to the correct device!  You will typically need root
++privileges to perform that dd command.
++
++See [the PicoCalc repo for more information](https://github.com/clockworkpi/PicoCalc/tree/master/Bin/PicoCalc%20SD#flashing-the-fuzix-32mb-image)
++
++## Iterating
++
++I (@wez) am by no means an expert of FUZIX, but I've found the following things
++useful when iterating on building stuff in here:
++
++* You can use `picoctl flash` to reset into flash mode, which saves some hassle
++  if you want to update the kernel image
++* To clean and rebuild the kernel image, without cmake over-aggressively caching things, use:
++
++```console
++$ make -C Kernel/platform/platform-rpipico/ clean
++$ make TARGET=rpipico SUBTARGET=pico2_w diskimage
++```
++
++## Customizing your filesystem image
++
++* You probably want to `echo "stty erase '^?'" > .profile` to make
++  delete/backspace work over the serial console
++* If you add an additional partition to your SD card, you can enable swap on it; the maximum size that can be used is 2048kB; you can create a partition larger than that size, but you can only use 2048kB or 4096 blocks of it. The following command will use that size:
++
++```console
++$ swapon /dev/hda3 4096
++```
++
++You can put that command into `/etc/rc` using `levee` as an editor; it is
++similar to `vi`.
