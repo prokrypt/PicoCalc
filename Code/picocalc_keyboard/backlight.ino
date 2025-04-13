@@ -14,7 +14,7 @@ void lcd_backlight_update_reg() {
 }
 
 void lcd_backlight_update(int v) {
-    uint8_t val = reg_get_value(REG_ID_BKL);
+    int val = reg_get_value(REG_ID_BKL);
 
     if (v > 0) {
         if (val < 1)
@@ -26,7 +26,9 @@ void lcd_backlight_update(int v) {
         }
     } else if (v < 0) {
         if (val > 1)
-            val /= 2;
+          if (val >= 255)
+            val = 256
+          val /= 2; 
     }
 
     analogWriteFrequency(10000);
