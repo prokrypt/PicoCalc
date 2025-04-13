@@ -135,17 +135,21 @@ void receiveEvent(int howMany) {
       write_buffer[0] = reg;
       write_buffer[1] = reg_get_value(REG_ID_BKL);
     } break;
+    case REG_ID_BK2: {
+      reg_set_value(REG_ID_BK2, rcv_data[1]);
+      kbd_backlight_update_reg();
+      write_buffer[0] = reg;
+      write_buffer[1] = reg_get_value(REG_ID_BK2);
+    } break;
     case REG_ID_BAT:{
       //Serial1.print("REG_ID_BAT getBatteryPercent:");Serial1.print(current_bat_pcnt);Serial1.println("%");
       write_buffer[0] = reg;
       write_buffer[1] = (uint8_t)current_bat_pcnt;
-      
     }break;
     case REG_ID_KEY: {
       write_buffer[0] = fifo_count();
       write_buffer[0] |= keyboard_get_numlock()  ? KEY_NUMLOCK  : 0x00;
       write_buffer[0] |= keyboard_get_capslock() ? KEY_CAPSLOCK : 0x00;
-
     }break;
     case REG_ID_C64_MTX:{
       write_buffer[0] = reg;
@@ -404,6 +408,8 @@ void setup() {
   digitalWrite(PA13, LOW);
   reg_init();
   
+  delay(10);
+
   Serial1.begin(115200);
 
   Wire.setSDA(PB9);
@@ -471,7 +477,7 @@ void setup() {
 
   keyboard_init();
   keyboard_set_key_callback(key_cb);
-  lcd_backlight_update(-223);
+  lcd_backlight_update_reg();
   
   digitalWrite(PA13, HIGH);
 
