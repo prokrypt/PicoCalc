@@ -130,14 +130,18 @@ void receiveEvent(int howMany) {
       write_buffer[1] = (uint8_t)item.key;
     } break;
     case REG_ID_BKL: {
-      reg_set_value(REG_ID_BKL, rcv_data[1]);
-      lcd_backlight_update_reg();
+      if (is_write) {
+        reg_set_value(REG_ID_BKL, rcv_data[1]);
+        lcd_backlight_update_reg();
+      }
       write_buffer[0] = reg;
       write_buffer[1] = reg_get_value(REG_ID_BKL);
     } break;
     case REG_ID_BK2: {
-      reg_set_value(REG_ID_BK2, rcv_data[1]);
-      kbd_backlight_update_reg();
+      if (is_write) {
+        reg_set_value(REG_ID_BK2, rcv_data[1]);
+        kbd_backlight_update_reg();
+      }
       write_buffer[0] = reg;
       write_buffer[1] = reg_get_value(REG_ID_BK2);
     } break;
@@ -237,7 +241,7 @@ void check_pmu_int() {
 
   if (!pmu_online) return;
   
-  if (time_uptime_ms() - run_time > 20000) {
+  if (time_uptime_ms() - run_time > 2000) {
     run_time = millis();  // reset time
     pcnt = PMU.getBatteryPercent();
     //Serial1.print("check_pmu_int:  ");Serial1.print(pcnt);Serial1.println();
