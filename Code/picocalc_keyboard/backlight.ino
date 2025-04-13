@@ -27,7 +27,7 @@ void lcd_backlight_update(int v) {
     } else if (v < 0) {
         if (val > 1)
           if (val >= 255)
-            val = 256
+            val = 256;
           val /= 2; 
     }
 
