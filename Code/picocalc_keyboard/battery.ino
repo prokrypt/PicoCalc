@@ -1,74 +1,64 @@
-#include "battery.h"
 
+#include "backlight.h"
 
-void indicator_led_on(){
-    digitalWrite(PC13, LOW);
-}
+void lcd_backlight_update_reg() {
 
-void indicator_led_off(){
-    digitalWrite(PC13, HIGH);
-}
+  uint8_t val;
 
-void flash_one_time(int ts,int restore_status) {
-    for(int i=0;i<ts;i++) {
-      indicator_led_on();
-      delay(400);
-      indicator_led_off();
-      delay(200);
-    }
-    digitalWrite(PC13,restore_status);
-}
-
-void show_bat_segs(){
-  if(!PMU.isBatteryConnect()) return;
-
-  int pcnt =  PMU.getBatteryPercent();
-  int last_d201_status = digitalRead(PC13);
+  val = reg_get_value(REG_ID_BKL);
+  val = val & 0xff;
   
-  if(pcnt >0 && pcnt < 33) {
-    //show one time
-    flash_one_time(1,last_d201_status);
-  }else if(pcnt >= 33 && pcnt <66){
-    //show 2 times
-     flash_one_time(2,last_d201_status);   
-  }else if(pcnt >=66 && pcnt <= 100){
-    //show 3 times
-     flash_one_time(3,last_d201_status);
-  }
-  
-  if(PMU.isCharging()){
-    start_chg();
-  }
+  analogWriteFrequency(10000);
+  analogWrite(PA8, val);
 
 }
 
-void low_bat(){
-  if(PMU.isBatteryConnect() && !PMU.isCharging()){
-    int pcnt = PMU.getBatteryPercent();
-     if(pcnt <= LOW_BAT_VAL){
-      //This is related to the battery charging and discharging logic. If you're not sure what you're doing, please don't modify it, as it could damage the battery.
-        indicator_led_off();      
-        if(pcnt <= 1) {//This is related to the battery charging and discharging logic. If you're not sure what you're doing, please don't modify it, as it could damage the battery.
-          PMU.setChargingLedMode(XPOWERS_CHG_LED_BLINK_4HZ);
-          if(pcnt==0){//This is related to the battery charging and discharging logic. If you're not sure what you're doing, please don't modify it, as it could damage the battery.
-            PMU.shutdown();//This is related to the battery charging and discharging logic. If you're not sure what you're doing, please don't modify it, as it could damage the battery.
-          }
-        }else{
-          PMU.setChargingLedMode(XPOWERS_CHG_LED_ON);
+void lcd_backlight_update(int v) {
+    uint8_t val = reg_get_value(REG_ID_BKL);
+
+    if (v > 0) {
+        if (val < 1)
+            val = 1;
+        else {
+            val *= 2;
+            if (val > 255)
+              val = 255;
         }
-     }else{
-        indicator_led_on();
-        PMU.setChargingLedMode(XPOWERS_CHG_LED_OFF);
-     }
-  }
+    } else if (v < 0) {
+        if (val > 1)
+            val /= 2;
+    }
+
+    analogWriteFrequency(10000);
+    analogWrite(PA8, val);
+    reg_set_value(REG_ID_BKL, val);
 }
 
-void start_chg(){
-  indicator_led_on();
-  PMU.setChargingLedMode(XPOWERS_CHG_LED_BLINK_1HZ);
+void kbd_backlight_update_reg(){
+
+  uint8_t val;
+
+  val = reg_get_value(REG_ID_BK2);
+  val = val & 0xff;
+
+  analogWriteFrequency(10000); 
+  analogWrite(PC8, val);
+
 }
 
-void stop_chg(){
-  PMU.setChargingLedMode(XPOWERS_CHG_LED_OFF);
-  low_bat();
+void kbd_backlight_update_offset(){
+  int val;
+  val = reg_get_value(REG_ID_BK2);
+  if(val == 0 )
+    val = 16;
+  else
+    val *= 2;
+  if (val > 200)
+    val = 0;
+  else if(val >110)
+    val = 110;
+ 
+  analogWriteFrequency(10000); 
+  analogWrite(PC8, val);  
+  reg_set_value(REG_ID_BK2,val);
 }
