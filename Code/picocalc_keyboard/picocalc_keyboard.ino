@@ -403,6 +403,8 @@ void setup() {
   pinMode(PA13, OUTPUT);  // pico enable
   digitalWrite(PA13, LOW);
   reg_init();
+
+  delay(10);
   
   Serial1.begin(115200);
 
