@@ -20,15 +20,16 @@ void lcd_backlight_update(int v) {
         if (val < 1)
             val = 1;
         else {
-            val *= 2;
+            val <<= 1;
             if (val > 255)
               val = 255;
         }
     } else if (v < 0) {
-        if (val > 1)
+        if (val > 1) {
           if (val >= 255)
             val = 256;
-          val /= 2; 
+          val >>= 1;
+        }
     }
 
     analogWriteFrequency(10000);
