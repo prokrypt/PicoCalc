@@ -419,7 +419,7 @@ void setup() {
   Wire.setSDA(PB9);
   Wire.setSCL(PB8);
   Wire.begin(SLAVE_ADDRESS);
-  Wire.setClock(100000);//It is important to set to 10Khz--NAH
+  Wire.setClock(10000);//It is important to set to 10Khz
   Wire.onReceive(receiveEvent);  // register event
   Wire.onRequest(requestEvent);
 
