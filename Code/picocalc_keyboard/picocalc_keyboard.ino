@@ -412,14 +412,14 @@ void setup() {
   digitalWrite(PA13, LOW);
   reg_init();
   
-  delay(10);
+  delay(1);
 
   Serial1.begin(115200);
 
   Wire.setSDA(PB9);
   Wire.setSCL(PB8);
   Wire.begin(SLAVE_ADDRESS);
-  Wire.setClock(10000);//It is important to set to 10Khz
+  Wire.setClock(100000);//It is important to set to 10Khz--NAH
   Wire.onReceive(receiveEvent);  // register event
   Wire.onRequest(requestEvent);
 
