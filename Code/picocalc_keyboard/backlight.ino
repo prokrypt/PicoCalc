@@ -56,10 +56,10 @@ void kbd_backlight_update_offset(){
     val = 16;
   else
     val *= 2;
-  if (val > 200)
+  if (val > 256)
     val = 0;
-  else if(val >110)
-    val = 110;
+  else if(val >128)
+    val = 255;
  
   analogWriteFrequency(10000); 
   analogWrite(PC8, val);  
