@@ -67,6 +67,7 @@ void keyboard_set_lock_callback(lock_callback callback);
 bool keyboard_get_capslock(void);
 bool keyboard_get_numlock(void);
 void keyboard_init(void);
+extern bool keyboard_is_shift_held(void);
 
 #define NUM_OF_COLS 8
 #define NUM_OF_ROWS 7
