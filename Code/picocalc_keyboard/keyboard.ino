@@ -451,3 +451,7 @@ void keyboard_init(void)
     port_pin_set_config(btn_pins[i], &port_init);
 #endif
 }
+
+bool keyboard_is_shift_held(void) {
+    return self.mods[MOD_SHL] || self.mods[MOD_SHR];
+}
