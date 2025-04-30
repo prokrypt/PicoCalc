@@ -4,6 +4,9 @@
 
 #include <Wire.h>
 
+unsigned long lastActivityTime = 0;
+const unsigned long inactivityTimeout = 2000;
+
 #include "XPowersLib.h"
 //---------------------------------------
 #include "backlight.h"
@@ -36,7 +39,7 @@ void set_pmu_flag(void) { pmu_flag = true; }
 
 HardwareSerial Serial1(PA10, PA9);
 
-uint8_t write_buffer[10];
+uint8_t write_buffer[10] = {0};
 uint8_t write_buffer_len = 0;
 
 uint8_t io_matrix[9];//for IO matrix,last bytye is the restore key(c64 only)
@@ -102,6 +105,8 @@ static void key_cb(char key, enum key_state state) {
 void receiveEvent(int howMany) {
   uint8_t rcv_data[2];  // max size 2, protocol defined
   uint8_t rcv_idx;
+
+  lastActivityTime = millis();
 
   if (Wire.available() < 1) return;
 
@@ -175,7 +180,13 @@ void receiveEvent(int howMany) {
 }
 
 //-this is after receiveEvent-------------------------------
-void requestEvent() { Wire.write(write_buffer,write_buffer_len ); }
+void requestEvent() {
+  if (write_buffer_len > 0 && write_buffer_len <= sizeof(write_buffer)) {
+    Wire.write(write_buffer,write_buffer_len );
+  } else {
+    Wire.write((uint8_t)0); // Send something minimal to avoid stalling
+  }
+}
 
 void report_bat(){
  if (PMU.isBatteryConnect()) {
@@ -324,6 +335,21 @@ void check_pmu_int() {
     }
 
     if (PMU.isPekeyShortPressIrq()) {
+      if (keyboard_is_shift_held()){
+        digitalWrite(PA13, LOW);
+        // Reset I2C
+        Wire.end();  // Stop the I2C bus
+        // Reinitialize I2C with the same settings
+        delay(10);
+        Wire.setSDA(PB9);
+        Wire.setSCL(PB8);
+        Wire.begin(SLAVE_ADDRESS);
+  //      Wire.setClock(10000);  // Reset to 10 kHz clock speed
+        Wire.onReceive(receiveEvent);  // Re-register receive event
+        Wire.onRequest(requestEvent);  // Re-register request event
+        delay(100);
+        digitalWrite(PA13, HIGH);
+      }
       Serial1.println("isPekeyShortPress");
       // enterPmuSleep();
 
@@ -419,7 +445,7 @@ void setup() {
   Wire.setSDA(PB9);
   Wire.setSCL(PB8);
   Wire.begin(SLAVE_ADDRESS);
-  Wire.setClock(10000);//It is important to set to 10Khz
+//  Wire.setClock(10000); //It is important to set to 10Khz
   Wire.onReceive(receiveEvent);  // register event
   Wire.onRequest(requestEvent);
 
@@ -552,7 +578,29 @@ void check_hp_det(){
   head_phone_status = v;
   
 }
+
+void resetI2C() {
+  //nah
+  return;
+  // Reset Wire (I2C) if no activity for 2 seconds
+  Wire.end();  // Stop the I2C bus
+
+  Wire.setSDA(PB9);
+  Wire.setSCL(PB8);
+  Wire.begin(SLAVE_ADDRESS);
+//  Wire.setClock(10000);//It is important to set to 10Khz
+  Wire.onReceive(receiveEvent);  // register event
+  Wire.onRequest(requestEvent);
+
+  Serial.println("I2C bus has been reset due to inactivity.");
+}
+
 void loop() {
+  /*
+  if (millis() - lastActivityTime > inactivityTimeout) {
+    resetI2C();
+  }
+  */
   check_pmu_int();
   keyboard_process();
   check_hp_det();
