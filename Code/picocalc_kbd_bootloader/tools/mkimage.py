@@ -2,7 +2,8 @@
 """Host helper for the keyboard bootloader images.
 
   mkimage.py check app.bin
-      Check that an app .bin is linked at 0x08002000 (what kbdflash.py needs).
+      Check that an app .bin is linked at 0x08002000 (what kbdflash.py needs), and
+      write app.bin.crc32, which kbdflash.py checks the copy on the SD card against.
 
   mkimage.py combined kbd_bootloader.bin app.bin -o kbd-combined.bin
       One image for the first install over USB-C with DIP switch 1 (STM32CubeProgrammer,
@@ -55,6 +56,9 @@ def main():
     app = open(a.app, 'rb').read()
     check_app(app)
     if a.cmd == 'check':
+        with open(a.app + '.crc32', 'w') as f:
+            f.write('%08x\n' % zlib.crc32(app))
+        print('wrote %s.crc32 (copy it next to the .bin on the SD card)' % a.app)
         return
     bl = open(a.bootloader, 'rb').read()
     if len(bl) > BL_SIZE:

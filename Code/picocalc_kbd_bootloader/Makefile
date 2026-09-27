@@ -2,6 +2,7 @@
 #   make            -> build/kbd_bootloader.bin with arm-none-eabi-gcc (must stay under 8 KB)
 #   make clang      -> same with clang + lld (what the branch was checked with)
 #   make hosttest   -> run kbdflash.py against the protocol core (tools/sim_test.py)
+#   make emutest    -> run the built bootloader in an STM32F103 emulator (tools/emu_test.py)
 CROSS  ?= arm-none-eabi-
 CC      = $(CROSS)gcc
 OBJCOPY = $(CROSS)objcopy
@@ -36,7 +37,12 @@ clang:
 hosttest: build/libblcore.so
 	python3 tools/sim_test.py build/libblcore.so
 
+# needs `pip install unicorn` and the app .bin (tools/build_app.sh); EMU_ARGS=--quick for a short run
+APP_BIN ?= build/app/picocalc_keyboard.ino.bin
+emutest: build/kbd_bootloader.bin
+	python3 tools/emu_test.py build/kbd_bootloader.bin $(APP_BIN) $(EMU_ARGS)
+
 clean:
 	rm -rf build
 
-.PHONY: all clang hosttest clean
+.PHONY: all clang hosttest emutest clean

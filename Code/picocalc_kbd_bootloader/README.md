@@ -8,8 +8,11 @@ without DIP switches or a USB cable, after one install over USB.
 - The app builds with arduino-cli 1.3.1 and STM32 core 2.10.0 at 0x08002000: 40,744 bytes, ending at
   0x0800BF28. The vector table is at 0x08002000, and `SystemInit()` sets VTOR to 0x08002000.
 - `mkimage.py combined` output passes the bootloader's own validity check (`bl_app_valid`).
-- `make hosttest` runs `kbdflash.py` against the real protocol code (`bl_core.c`), with a simulated
+- `make hosttest` (25 checks) runs `kbdflash.py` against the real protocol code (`bl_core.c`), with a simulated
   flash, a noisy bus, stale bytes after short reads, and an app that must never be over-read.
+- `make emutest` (19 checks) runs the **built bootloader binary** in an STM32F103 model (unicorn Cortex-M3 plus
+  modelled flash controller, BKP, IWDG, SysTick, GPIO and I2C slave), driven by the unmodified `kbdflash.py`.
+  See "Emulator results" below.
 - `bl_main.c` was reviewed against RM0008 for flash, IWDG, BKP and the I2C slave.
 
 Not exercised: anything on a real PicoCalc.
@@ -30,7 +33,7 @@ after that the Pico can flash the keyboard chip itself over the I2C bus it alrea
 |---|---|---|
 | 0x08000000–0x08001FFF | 8 KB | this bootloader |
 | 0x08002000–0x0800FBFF | 55 KB | keyboard app (`Code/picocalc_keyboard`, linked here) |
-| 0x0800FC00–0x0800FFFF | 1 KB | info page: magic, length, crc32, ~magic |
+| 0x0800FC00–0x0800FFFF | 1 KB | info page: a log of 64 records {magic, length, crc32, ~magic} |
 
 ## Boot flow
 
@@ -76,11 +79,11 @@ A write is `[cmd, args...]`. A read returns this 24-byte status:
 
 | Cmd | Args | Result |
 |---|---|---|
-| 0x01 INFO | | ok |
-| 0x10 ERASE | u32 len | busy (erases the info page first, then the app pages), then ok |
-| 0x20 WRITE | u32 off, u8 n ≤ 128 (even), n bytes, u16 sum of all previous bytes | ok, value = off+n |
-| 0x30 CRC | u32 len | busy, then ok, value = crc32 |
-| 0x40 COMMIT | u32 len, u32 crc32 | busy, then ok (checks the crc and vectors, then writes the info page) |
+| 0x01 INFO | | ok, value = committed length (0 if none) |
+| 0x11 ERASE_PAGE | u32 off (page aligned) | busy, then ok, value 1 = erased, 0 = was already blank. Invalidates the committed record first. |
+| 0x20 WRITE | u32 off, u8 n ≤ 128 (even), n bytes, u16 sum of all previous bytes | ok, value = off+n. Only into a page passed to ERASE_PAGE since the bootloader started. |
+| 0x30 CRC | u32 off, u32 len | busy, then ok, value = crc32 of that range |
+| 0x40 COMMIT | u32 len, u32 crc32 | busy, then ok (checks the crc and vectors, then appends a record; no write if that record is already live) |
 | 0x50 BOOT | | ok, then reset into the app 20 ms later (refused if nothing is committed) |
 | 0x51 PING | | ok, resets the idle timeout |
 
@@ -89,10 +92,74 @@ Details:
 - A command sent while busy is ignored.
 - WRITE skips halfwords that already hold the right value, so retrying after a lost ack is safe.
 - crc32 matches zlib and `binascii.crc32`.
+- Error codes: 2 length, 3 argument, 4 checksum, 5 page not erased this session, 6 flash controller,
+  7 read-back, 8 crc, 9 vectors, 11 overflow, 12 no app.
 
 New app register: **0x0E REG_ID_BOOT**.
 - Read it to get `[0x0E, flags]`: bit 0 means the app is running above the bootloader, and bit 1 means this boot was a trial and has been confirmed.
 - Write 0xB0 to restart into the bootloader.
+
+## Flash wear
+
+The F103 is rated for 10,000 erase cycles per page (RM0008 / datasheet), so writes are kept to what an update needs:
+
+- **Nothing writes flash except an explicit update** (`kbdflash.flash()` / `recover()`, or `autorecover(allow_flash=True)`,
+  which tries once and then needs a person). Checked three ways:
+  - the bootloader's boot paths only touch BKP registers (the emulator fails the run on any flash write before a command);
+  - the app binary contains no flash unlock keys or FLASH_KEYR/CR accesses, and uses no EEPROM emulation;
+  - `kbdflash` writes only inside `flash()`.
+- Boot state (enter request, trial arm/in-progress) lives in BKP_DR1/DR2, never in flash.
+- `flash()` first reads a CRC of every page from the chip and only erases and rewrites the pages that differ.
+  A page that is already blank isn't erased. Re-flashing the same image erases and programs nothing.
+- The info page is a log of 64 records. A commit programs the next blank record, and the old one is invalidated by programming
+  0x0000 over its magic (allowed on the F1 without an erase). The page is erased once every 64 updates.
+- The bootloader and the ROM/option bytes are never erased: writes below 0x08002000 are refused in `bl_main.c`,
+  and OPTKEYR is never written.
+- The image is checked before the first erase: `.crc32` sidecar, two reads of the file agree, link address, stack pointer, size.
+
+Typical cost of an update that changes a few functions: 2–5 page erases. Interrupting one and running it again costs at most one more erase of the page that was in progress.
+
+## Emulator results
+
+`tools/emu_test.py` on the gcc build of the bootloader (3,136 bytes) and the real app (40,744 bytes, 40 pages):
+
+| Scenario | Result |
+|---|---|
+| 51 cold boots with a committed app | jumps to the app every time; 0 flash writes; PA13 (Pico power) never driven low |
+| Update A→B (2 pages changed) | 2 erases; trial boot under the ~4 s watchdog, confirmed after 500 ms |
+| Same image again | 0 erases, 0 programs |
+| New app that hangs in its trial | watchdog reset, bootloader reports "trial failed", restore works |
+| Power loss at every erase, every info-page write, first/last halfword of each page and every 16th halfword, with and without BKP surviving | never boots a mixed image; running `flash()` again always recovers; worst page wear across cut + retry: 2 erases |
+| Same, with the info-page log full (the commit erases the info page) | same |
+| 5 % of I2C transfers fail | update completes, no extra erases |
+| Image linked at 0x08000000 | refused before anything is sent |
+| App asks for the bootloader, nothing follows | back to the app after 30 s, no writes |
+
+Power loss is modelled as a half-done operation: an interrupted erase leaves random bits set, an interrupted program
+clears random bits. What the model can't show: real I2C timing and electrical glitches, the brown-out behaviour of PA13
+during reset, and the app itself (a Python stand-in replaces it after the jump).
+
+## Pre-flash checklist (the one-time USB install)
+
+This is the only step that can't be undone from the Pico, so check each item before step 4 of "Install once".
+
+1. **Know the rollback.** Read the current firmware out first (STM32CubeProgrammer, UART, "Read" 0x08000000, 64 KB)
+   and keep that file. If the chip is read-protected, stop: the readout would need a mass erase.
+2. **Confirm the part.** CubeProgrammer should show STM32F101/F102/F103 medium-density, 64 KB flash. The info page at
+   0x0800FC00 assumes 64 KB.
+3. **Check the image.**
+   - `sha256sum kbd-combined-*.bin` matches `SHA256SUMS`.
+   - `python3 tools/mkimage.py check <app>.bin` passes (link address 0x08002000, SP in RAM).
+   - `make hosttest` and `make emutest` pass on the build you are about to flash.
+4. **Power.** Battery charged or USB power attached; don't flash on a low battery.
+5. **Write once.** In CubeProgrammer: "Full chip erase" off, "Verify programming" on, start address 0x08000000.
+   One write of the combined image is one erase cycle per page used, the same as any stock update.
+6. **Set DIP 1 back off** before the first boot.
+7. **First boot checks, before any `kbdflash.flash()`:**
+   - the keyboard types, backlight and battery reading work;
+   - `kbdflash.status()` says "running above the bootloader";
+   - copy the app .bin and its `.crc32` to `/sd/kbd/last_good.bin` (+ `.crc32`).
+8. **First I2C update:** try `kbdflash.plan('/sd/kbd/app.bin')` (reads only) first; it prints how many pages would be erased.
 
 ## Install once (USB-C + DIP 1)
 
@@ -102,18 +169,20 @@ New app register: **0x0E REG_ID_BOOT**.
 3. `tools/mkimage.py combined build/kbd_bootloader.bin build/app/picocalc_keyboard.ino.bin -o kbd-combined.bin`
 4. DIP 1 on, connect USB-C, long-press power, and flash `kbd-combined.bin` at 0x08000000
    with STM32CubeProgrammer (UART). Then set DIP 1 off.
-5. Copy the app .bin to `/sd/kbd/last_good.bin` and `kbdflash.py` to the Pico.
+5. Copy the app .bin and its `.crc32` sidecar to `/sd/kbd/last_good.bin` (+ `.crc32`), and `kbdflash.py` to the Pico.
 
 ## Updating from MicroPython
 
 ```python
 import kbdflash
 kbdflash.status()                  # bootloader? app above the bootloader? old app?
-kbdflash.flash('/sd/kbd/app.bin')  # ~10-15 s at 50 kHz; the Pico power-cycles at the end
+kbdflash.plan('/sd/kbd/app.bin')   # dry run on the Pico's files: how many pages would be erased
+kbdflash.flash('/sd/kbd/app.bin')  # needs app.bin.crc32 next to it; the Pico power-cycles at the end
 ```
 
 What `flash()` does:
-- It checks the image before touching anything: size, stack pointer, and that the reset vector is linked at 0x08002000.
+- It checks the image before touching anything: the `.crc32` sidecar, two reads agree, size, stack pointer, and that the reset vector is linked at 0x08002000.
+- It compares page CRCs with the chip and rewrites only the pages that differ. It returns the number of erase cycles used.
 - It refuses to run below 25 % battery unless charging or `force=True`.
 - It parks the keyboard driver so timers can't interleave I2C traffic.
 - It prints each step with a progress bar.
@@ -127,9 +196,11 @@ For `main.py`, before `PicoKeyboard()` is created:
 import kbdflash; kbdflash.autorecover()
 ```
 
-This costs one 2-byte read when all is well. It promotes `/sd/kbd/pending.bin` to
-`last_good.bin` once a new image is seen running. If the keyboard chip is sitting in
-its bootloader, it restarts the intact app, or reflashes `last_good.bin`.
+This costs one 2-byte read when all is well, and never writes keyboard flash by default. It promotes
+`/sd/kbd/pending.bin` to `last_good.bin` once a new image is seen running. If the keyboard chip sits
+in its bootloader with its app intact (it was asked and nobody flashed), it starts the app again.
+Otherwise it returns `'needs-recover'` and leaves the choice to a person. With `allow_flash=True`
+it reflashes `last_good.bin` once; a marker file stops it from trying again on every boot.
 
 ## Register review notes (RM0008)
 
@@ -152,7 +223,7 @@ its bootloader, it restarts the intact app, or reflashes `last_good.bin`.
 ## Recovery ladder
 
 1. Any failure after the erase leaves the chip in the bootloader, with the Pico powered, until a good image is committed. Run `flash()` or `recover()` again, from push.py/WiFi or USB serial, since the keyboard is down.
-2. A new image that dies within 500 ms is caught by the trial watchdog, and `autorecover()` restores `last_good.bin`.
+2. A new image that dies within 500 ms is caught by the trial watchdog; the chip waits in its bootloader and `recover()` restores `last_good.bin` (or `autorecover(allow_flash=True)`, once).
 3. Last resort, always available: DIP 1 + USB-C + STM32CubeProgrammer. The ROM bootloader is untouched, and this also re-installs the bootloader itself.
 
 ## Known risks (check on hardware first)

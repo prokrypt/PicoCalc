@@ -6,13 +6,20 @@ After that:
 
     import kbdflash
     kbdflash.status()                  # what is answering at 0x1F
-    kbdflash.flash('/sd/kbd/app.bin')  # about 10 s; the Pico power-cycles at the end
-    kbdflash.autorecover()             # for main.py, before PicoKeyboard(): see README
+    kbdflash.plan('/sd/kbd/app.bin')   # how many flash pages an update would erase (no I2C)
+    kbdflash.flash('/sd/kbd/app.bin')  # the Pico power-cycles at the end
+    kbdflash.autorecover()             # for main.py: see README
 
 The keyboard stops working while this runs, and the keyboard chip controls the Pico's
 power, so the Pico restarts when the new keyboard firmware starts. If anything fails
-after the erase, the keyboard chip stays in its bootloader (Pico powered, screen lit)
-until a good image is written, so running flash() or recover() again always works.
+after the first erase, the keyboard chip stays in its bootloader (Pico powered, screen
+lit) until a good image is written, so running flash() or recover() again always works.
+
+Flash wear: the STM32F103 is rated for about 10,000 erase cycles per page. Only
+flash() and recover() ever erase or program it, and only pages whose content
+differs from the image; re-flashing the same image erases nothing. The image must
+come with a .crc32 sidecar (tools/mkimage.py writes it) and is checked against it,
+read twice, before anything is touched.
 """
 import struct
 
@@ -46,8 +53,9 @@ RAM_END = 0x20005000
 WRITE_MAX = 128
 STATUS_LEN = 24
 
-CMD_INFO, CMD_ERASE, CMD_WRITE, CMD_CRC, CMD_COMMIT, CMD_BOOT, CMD_PING = (
-    0x01, 0x10, 0x20, 0x30, 0x40, 0x50, 0x51)
+BL_VERSION = 2
+CMD_INFO, CMD_ERASE_PAGE, CMD_WRITE, CMD_CRC, CMD_COMMIT, CMD_BOOT, CMD_PING = (
+    0x01, 0x11, 0x20, 0x30, 0x40, 0x50, 0x51)
 ST_IDLE, ST_BUSY, ST_OK, ST_ERR = 0, 1, 2, 3
 REG_BAT = 0x0B
 REG_BOOT = 0x0E
@@ -55,7 +63,7 @@ BOOT_CONFIRM = 0xB0
 
 ERRORS = {
     2: 'bad frame length', 3: 'offset or length out of range', 4: 'checksum mismatch (I2C noise?)',
-    5: 'flash not erased there', 6: 'flash controller error', 7: 'read-back differs',
+    5: 'page not erased in this session', 6: 'flash controller error', 7: 'read-back differs',
     8: 'CRC mismatch after writing', 9: 'image vectors not plausible', 11: 'I2C write too long',
     12: 'no valid app to boot',
 }
@@ -224,9 +232,10 @@ class Link:
                 raise KbdFlashError('command 0x%02x was never accepted' % frame[0])
             sleep_ms(5)
 
-    def erase(self, length, progress=None):
-        pages = (length + PAGE - 1) // PAGE
-        return self.command(struct.pack('<BI', CMD_ERASE, length), timeout_ms=pages * 200 + 2000, progress=progress)
+    def erase_page(self, offset):
+        """Erase one app page (the bootloader first invalidates the committed app).
+        Returns 1 if an erase cycle was spent, 0 if the page was already blank."""
+        return self.command(struct.pack('<BI', CMD_ERASE_PAGE, offset), timeout_ms=1000)
 
     def write(self, offset, data):
         frame = struct.pack('<BIB', CMD_WRITE, offset, len(data)) + bytes(data)
@@ -236,8 +245,8 @@ class Link:
     def commit(self, length, crc, progress=None):
         return self.command(struct.pack('<BII', CMD_COMMIT, length, crc), timeout_ms=5000, progress=progress)
 
-    def crc(self, length):
-        return self.command(struct.pack('<BI', CMD_CRC, length), timeout_ms=5000)
+    def crc(self, offset, length):
+        return self.command(struct.pack('<BII', CMD_CRC, offset, length), timeout_ms=5000)
 
     def boot(self):
         return self.command(bytes((CMD_BOOT,)), timeout_ms=1000)
@@ -270,13 +279,61 @@ class Link:
         return None
 
 
-def load_image(path):
+def _read(path):
     with open(path, 'rb') as f:
-        img = f.read()
+        return f.read()
+
+
+def load_image(path, expect_crc=None):
+    """Read, check and pad an image. The crc32 of the file as built must match
+    expect_crc or the '<path>.crc32' sidecar, and two reads must agree, so an SD
+    card glitch or a truncated copy is caught before anything is erased."""
+    raw = _read(path)
+    if expect_crc is None:
+        try:
+            expect_crc = int(_read(path + '.crc32').decode().split()[0], 16)
+        except (OSError, ValueError, IndexError):
+            raise KbdFlashError('no %s.crc32 sidecar: copy it with the .bin (tools/mkimage.py writes it), '
+                                'or pass expect_crc=' % path)
+    got = crc32(raw)
+    if got != expect_crc:
+        raise KbdFlashError('%s crc32 is %08x, expected %08x: the file is damaged or not the one built'
+                            % (path, got, expect_crc))
+    if crc32(_read(path)) != got:
+        raise KbdFlashError('%s reads back differently each time: SD card problem' % path)
+    img = raw
     if len(img) % 4:
         img += b'\xff' * (4 - len(img) % 4)
     check_image(img)
     return img
+
+
+def _pages(img):
+    return [(off, img[off:off + PAGE]) for off in range(0, len(img), PAGE)]
+
+
+def plan(path=None, against=None, expect_crc=None):
+    """Host-only dry run: check the image and show how many pages an update would
+    erase, compared with `against` (default: last_good.bin, the image believed to
+    be in the keyboard chip). Touches no hardware."""
+    path = path or APP_BIN
+    img = load_image(path, expect_crc)
+    against = against or LAST_GOOD
+    try:
+        old = _read(against)
+        old += b'\xff' * (-len(old) % 4)  # as it was written
+    except OSError:
+        old = None
+    pages = _pages(img)
+    if old is None:
+        changed = len(pages)
+        _say('%s: %d bytes, %d pages; no %s to compare, so up to %d page erases'
+             % (path, len(img), len(pages), against, changed))
+    else:
+        changed = sum(1 for off, p in pages if old[off:off + len(p)] != p)
+        _say('%s: %d bytes, %d pages; %d differ from %s, so %d page erases (+1 info record)'
+             % (path, len(img), len(pages), changed, against, changed))
+    return changed
 
 
 def check_image(img):
@@ -307,7 +364,7 @@ def _bar(done, total, width=20):
     return '[' + '#' * n + '.' * (width - n) + '] %3d%%' % (done * 100 // total if total else 100)
 
 
-def _save_copy(img, path):
+def _save_copy(img, path, sidecar=False):
     try:
         import os
         try:
@@ -316,6 +373,9 @@ def _save_copy(img, path):
             pass
         with open(path, 'wb') as f:
             f.write(img)
+        if sidecar:  # images kept for recover() carry their crc like any other
+            with open(path + '.crc32', 'w') as f:
+                f.write('%08x\n' % crc32(img))
         return True
     except Exception as e:
         _say('note: could not save %s (%s)' % (path, e))
@@ -344,15 +404,17 @@ def status(i2c=None, freq=DEFAULT_FREQ):
         _unpark_keyboard(parked, 12000)
 
 
-def flash(path=None, i2c=None, force=False, freq=DEFAULT_FREQ, restore_freq=12000, reboot=True):
-    """Write a keyboard app image (raw .bin linked at 0x08002000) and restart into it."""
+def flash(path=None, i2c=None, force=False, freq=DEFAULT_FREQ, restore_freq=12000, reboot=True,
+          expect_crc=None):
+    """Write a keyboard app image (raw .bin linked at 0x08002000) and restart into it.
+    Only pages that differ from what the chip holds are erased and written."""
     t_start = ticks_ms()
     path = path or APP_BIN
-    img = load_image(path)
+    img = load_image(path, expect_crc)
     crc = crc32(img)
     est = estimate_s(len(img), freq)
-    _say('Keyboard firmware update: %s, %d bytes, crc %08x' % (path, len(img), crc))
-    _say('This takes about %d s. The keyboard stops responding until it is done; then the '
+    _say('Keyboard firmware update: %s, %d bytes, crc %08x (file checked)' % (path, len(img), crc))
+    _say('This takes up to %d s. The keyboard stops responding until it is done; then the '
          'keyboard chip restarts and the Pico power-cycles with it. Keep power on.' % int(est + 0.5))
 
     parked = _park_keyboard()
@@ -382,59 +444,63 @@ def flash(path=None, i2c=None, force=False, freq=DEFAULT_FREQ, restore_freq=1200
         else:
             _say('1/5 Keyboard is already in its bootloader (%s).' % WHY.get(s.why, 'reason %d' % s.why))
         entered = True
+        if s.version != BL_VERSION:
+            raise KbdFlashError('bootloader protocol v%d, this kbdflash speaks v%d: nothing was changed. '
+                                'Use the kbdflash.py from the same build as the bootloader.' % (s.version, BL_VERSION))
         if s.app_max < len(img):
             raise KbdFlashError('bootloader reports only %d bytes of app space' % s.app_max)
 
-        pages = (len(img) + PAGE - 1) // PAGE
-        _say('2/5 Erasing %d KB (%d pages, ~%d ms)...' % (pages, pages, pages * 30))
-        last = [-1]
+        pages = _pages(img)
+        _say('2/5 Comparing %d pages with the chip (reads only)...' % len(pages))
+        todo = [(off, p) for off, p in pages if link.crc(off, len(p)) != crc32(p)]
+        _say('    %d of %d pages differ.' % (len(todo), len(pages)))
 
-        def erase_progress(v):
-            if v != last[0]:
-                last[0] = v
-                print('\r[kbd]     ' + _bar(v, pages + 1), end='')
-        link.erase(len(img), erase_progress)
-        print('\r[kbd]     ' + _bar(1, 1))
-
-        _say('3/5 Writing %d bytes...' % len(img))
-        step = max(1024, len(img) // 20 // WRITE_MAX * WRITE_MAX)
-        for off in range(0, len(img), WRITE_MAX):
-            chunk = img[off:off + WRITE_MAX]
-            for attempt in range(3):
-                try:
-                    link.write(off, chunk)
-                    break
-                except KbdFlashError as e:
-                    if attempt == 2 or 'not erased' in str(e) or 'controller' in str(e):
-                        raise
-                    _say('retrying block at %d: %s' % (off, e))
-            if off % step == 0 or off + WRITE_MAX >= len(img):
-                print('\r[kbd]     ' + _bar(min(off + WRITE_MAX, len(img)), len(img)), end='')
-        print()
+        erased = 0
+        if todo:
+            nbytes = sum(len(p) for _, p in todo)
+            _say('3/5 Rewriting %d pages (%d bytes)...' % (len(todo), nbytes))
+            done = 0
+            for off, p in todo:
+                erased += link.erase_page(off)
+                for o in range(0, len(p), WRITE_MAX):
+                    chunk = p[o:o + WRITE_MAX]
+                    for attempt in range(3):
+                        try:
+                            link.write(off + o, chunk)
+                            break
+                        except KbdFlashError as e:
+                            if attempt == 2 or 'not erased' in str(e) or 'controller' in str(e):
+                                raise
+                            _say('retrying block at %d: %s' % (off + o, e))
+                done += len(p)
+                print('\r[kbd]     ' + _bar(done, nbytes), end='')
+            print()
+        else:
+            _say('3/5 Nothing to rewrite.')
 
         _say('4/5 Verifying crc %08x on the keyboard chip...' % crc)
         link.commit(len(img), crc)
-        _say('    verified and committed.')
+        _say('    verified and committed; %d erase cycles used.' % erased)
 
-        if path != LAST_GOOD:
-            _save_copy(img, PENDING)  # autorecover() promotes it once it is seen running
+        if path != LAST_GOOD and todo:
+            _save_copy(img, PENDING, sidecar=True)  # autorecover() promotes it once it is seen running
         took = ticks_diff(ticks_ms(), t_start) / 1000
         if not reboot:
             _say('5/5 Done in %.1f s. Staying in the bootloader (reboot=False); run kbdflash.boot() to start it.' % took)
-            return True
-        _say('5/5 Done in %.1f s. Starting the new keyboard firmware: the Pico restarts now.' % took)
+            return erased
+        _say('5/5 Done in %.1f s. Starting the keyboard firmware: the Pico restarts now.' % took)
         sleep_ms(300)  # let the message reach the screen
         entered = False  # past this point a failure leaves a valid, committed app
         link.boot()
         sleep_ms(2000)  # normally the power cut arrives first
         _say('still running: the keyboard firmware did not cut Pico power (expected with some builds).')
-        return True
+        return erased
     except BaseException as e:
         if entered:
             _say('FAILED: %s' % e)
             _say('The keyboard chip stays in its bootloader with the Pico powered until a good image is written.')
-            _say('Run kbdflash.flash() again, or kbdflash.recover() for the last good image. '
-                 'Last resort: DIP 1 + USB-C (README).')
+            _say('Run kbdflash.flash() again (pages already right are not erased again), or '
+                 'kbdflash.recover() for the last good image. Last resort: DIP 1 + USB-C (README).')
         raise
     finally:
         _unpark_keyboard(parked, restore_freq)
@@ -450,10 +516,12 @@ def recover(i2c=None, force=True):
     return flash(LAST_GOOD, i2c=i2c, force=force)
 
 
-def autorecover(i2c=None):
-    """Call from main.py before PicoKeyboard() is created. Cheap when all is well
-    (one 2-byte register read). If the keyboard chip is sitting in its bootloader,
-    reflash the last good image; if a freshly flashed image is running, promote it."""
+def autorecover(i2c=None, allow_flash=False):
+    """For main.py. Cheap when all is well (one 2-byte register read), and writes no
+    flash unless allow_flash=True. If a freshly flashed image is running, promote it
+    to last_good. If the keyboard chip sits in its bootloader with its app intact,
+    start the app (no writes). Otherwise say what to do; with allow_flash=True,
+    restore last_good.bin once (a marker file stops a second automatic attempt)."""
     import os
     link = Link(i2c or _make_i2c(12000))
     what = link.probe()
@@ -461,15 +529,20 @@ def autorecover(i2c=None):
         return None
     if what != 'bl':
         try:
+            os.remove(KBD_DIR + '/autorecover.tried')  # a restore that ended in a reboot worked
+        except OSError:
+            pass
+        try:
             os.stat(PENDING)
         except OSError:
             return 'ok'
         try:
-            try:
-                os.remove(LAST_GOOD)
-            except OSError:
-                pass
-            os.rename(PENDING, LAST_GOOD)
+            for ext in ('', '.crc32'):
+                try:
+                    os.remove(LAST_GOOD + ext)
+                except OSError:
+                    pass
+                os.rename(PENDING + ext, LAST_GOOD + ext)
             _say('new keyboard firmware is running; kept it as ' + LAST_GOOD)
         except OSError as e:
             _say('could not promote %s: %s' % (PENDING, e))
@@ -488,6 +561,7 @@ def autorecover(i2c=None):
     if s is not None and s.why == 3:
         try:
             os.remove(PENDING)  # the image that failed its trial
+            os.remove(PENDING + '.crc32')
             _say('removed %s: it did not start' % PENDING)
         except OSError:
             pass
@@ -496,5 +570,20 @@ def autorecover(i2c=None):
     except OSError:
         _say('no %s to restore. Copy a keyboard .bin there, or use DIP 1 + USB-C (README).' % LAST_GOOD)
         return 'stuck'
+    marker = KBD_DIR + '/autorecover.tried'
+    if not allow_flash:
+        _say('the keyboard firmware needs restoring. Run kbdflash.recover() (over WiFi or USB serial).')
+        return 'needs-recover'
+    try:
+        os.stat(marker)
+        _say('automatic restore already tried once; run kbdflash.recover() by hand, then delete ' + marker)
+        return 'needs-recover'
+    except OSError:
+        pass
+    _save_copy(b'1', marker)
     flash(LAST_GOOD, i2c=link.i2c, force=True)
+    try:
+        os.remove(marker)
+    except OSError:
+        pass
     return 'recovered'

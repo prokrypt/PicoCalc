@@ -8,7 +8,17 @@
  * Flash map (64 KB part, 1 KB pages):
  *   0x08000000 - 0x08001FFF  bootloader (8 KB)
  *   0x08002000 - 0x0800FBFF  keyboard app (55 KB)
- *   0x0800FC00 - 0x0800FFFF  info page: {magic, len, crc32, ~magic}
+ *   0x0800FC00 - 0x0800FFFF  info page: log of 64 16-byte records
+ *
+ * Flash wear (the F103 is rated 10k erase cycles per page):
+ *   - nothing on any boot path writes flash; boot state lives in BKP registers
+ *   - an update erases only the app pages whose content changes (ERASE_PAGE,
+ *     chosen by the host after comparing CRC per page), and skips a page that
+ *     is already blank
+ *   - the info page is a log: commit programs the next blank 16-byte record,
+ *     invalidation programs 0x0000 over a record's magic (allowed on the F1
+ *     without an erase), and the page is erased only when all 64 slots are used
+ *   - re-committing the image that is already live writes nothing
  *
  * The protocol is documented in README.md.
  */
@@ -17,7 +27,7 @@
 
 #include <stdint.h>
 
-#define BL_VERSION        1u
+#define BL_VERSION        2u
 #define BL_MARKER         0xB1u   /* status byte 0; never a valid app reply */
 
 #define FLASH_START       0x08000000u
@@ -30,6 +40,8 @@
 #define RAM_END           0x20005000u   /* 20 KB */
 
 #define INFO_MAGIC        0x4B424F4Bu   /* "KOBK" little-endian */
+#define INFO_REC          16u           /* {magic, len, crc32, ~magic}; magic written last */
+#define INFO_SLOTS        (FLASH_PAGE / INFO_REC)
 
 #define I2C_ADDR          0x1Fu         /* same address as the keyboard app */
 #define WRITE_MAX         128u
@@ -51,10 +63,10 @@
 #define WHY_TRIAL   3u   /* the last flashed app never confirmed      */
 
 /* commands (first byte of an I2C write) */
-#define CMD_INFO    0x01u  /* -> OK                                          */
-#define CMD_ERASE   0x10u  /* u32 len -> BUSY (value=pages done) -> OK       */
+#define CMD_INFO    0x01u  /* -> OK (value = live record len, 0 if none)     */
+#define CMD_ERASE_PAGE 0x11u /* u32 off -> OK (value 1 erased, 0 was blank) */
 #define CMD_WRITE   0x20u  /* u32 off, u8 n, n bytes, u16 sum -> OK          */
-#define CMD_CRC     0x30u  /* u32 len -> BUSY -> OK (value=crc32)            */
+#define CMD_CRC     0x30u  /* u32 off, u32 len -> BUSY -> OK (value=crc32)   */
 #define CMD_COMMIT  0x40u  /* u32 len, u32 crc -> BUSY -> OK                 */
 #define CMD_BOOT    0x50u  /* -> OK, then reset into the app 20 ms later     */
 #define CMD_PING    0x51u  /* -> OK; resets the idle timeout                 */
@@ -70,7 +82,7 @@
 #define E_LEN         2u   /* frame length wrong for the command        */
 #define E_ARG         3u   /* offset/length out of range or misaligned  */
 #define E_SUM         4u   /* WRITE checksum mismatch                   */
-#define E_NOT_ERASED  5u   /* WRITE before ERASE, or target not blank   */
+#define E_NOT_ERASED  5u   /* WRITE to a page not erased this session   */
 #define E_FLASH       6u   /* flash controller reported an error        */
 #define E_VERIFY      7u   /* read-back differs after programming       */
 #define E_CRC         8u   /* COMMIT crc differs from flash contents    */

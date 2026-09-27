@@ -7,9 +7,12 @@
 #define FLASH_SIZE 0x10000u
 static uint8_t flash[FLASH_SIZE];
 int host_fail_program_at = -1;   /* test hook: make this offset's program fail */
+uint32_t host_erase_count[FLASH_SIZE / FLASH_PAGE];  /* wear accounting per page */
+uint32_t host_program_count;
 
 uint8_t *host_flash(void) { return flash; }
 void host_flash_blank(void) { memset(flash, 0xFF, sizeof flash); }
+void host_reset_counts(void) { memset(host_erase_count, 0, sizeof host_erase_count); host_program_count = 0; }
 
 static int ok_addr(uint32_t a) { return a >= APP_BASE && a < FLASH_START + FLASH_SIZE; }
 
@@ -27,6 +30,7 @@ uint16_t hal_read16(uint32_t a) {
 int hal_erase_page(uint32_t a) {
   if (!ok_addr(a) || (a % FLASH_PAGE)) return -1;
   memset(flash + (a - FLASH_START), 0xFF, FLASH_PAGE);
+  host_erase_count[(a - FLASH_START) / FLASH_PAGE]++;
   return 0;
 }
 
@@ -37,5 +41,6 @@ int hal_program16(uint32_t a, uint16_t v) {
   if (hal_read16(a) != 0xFFFFu && v != 0) return -1;  /* PGERR */
   flash[o] = (uint8_t)v;
   flash[o + 1] = (uint8_t)(v >> 8);
+  host_program_count++;
   return 0;
 }
