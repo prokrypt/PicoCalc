@@ -10,7 +10,7 @@ without DIP switches or a USB cable, after one install over USB.
 - `mkimage.py combined` output passes the bootloader's own validity check (`bl_app_valid`).
 - `make hosttest` (25 checks) runs `kbdflash.py` against the real protocol code (`bl_core.c`), with a simulated
   flash, a noisy bus, stale bytes after short reads, and an app that must never be over-read.
-- `make emutest` (19 checks) runs the **built bootloader binary** in an STM32F103 model (unicorn Cortex-M3 plus
+- `make emutest` (17 checks) runs the **built bootloader binary** in an STM32F103 model (unicorn Cortex-M3 plus
   modelled flash controller, BKP, IWDG, SysTick, GPIO and I2C slave), driven by the unmodified `kbdflash.py`.
   See "Emulator results" below.
 - `bl_main.c` was reviewed against RM0008 for flash, IWDG, BKP and the I2C slave.
