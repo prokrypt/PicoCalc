@@ -19,6 +19,7 @@ enum reg_id
   REG_ID_BAT = 0x0b,// battery
   REG_ID_C64_MTX = 0x0c,// read c64 matrix
   REG_ID_C64_JS = 0x0d, // joystick io bits
+  REG_ID_BOOT = 0x0e, // write 0xB0: restart into the I2C bootloader; read: kbd_boot_flags()
   REG_ID_LAST,
 };
 

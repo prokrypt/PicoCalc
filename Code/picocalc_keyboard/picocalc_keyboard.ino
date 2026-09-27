@@ -17,6 +17,7 @@ const unsigned long inactivityTimeout = 2000;
 #include "port.h"
 #include "reg.h"
 #include "battery.h"
+#include "kbd_boot.h"
 
 #define DEBUG_UART
 TwoWire Wire2 = TwoWire(CONFIG_PMU_SDA, CONFIG_PMU_SCL);
@@ -155,6 +156,11 @@ void receiveEvent(int howMany) {
       write_buffer[0] = reg;
       // percent, plus bit 7 while charging (pmu_status is 0xff with no battery)
       write_buffer[1] = pmu_status == 0xff ? 0 : pmu_status;
+    }break;
+    case REG_ID_BOOT:{
+      if (is_write) kbd_boot_request(rcv_data[1]);
+      write_buffer[0] = reg;
+      write_buffer[1] = kbd_boot_flags();
     }break;
     case REG_ID_KEY: {
       write_buffer[0] = fifo_count();
@@ -605,5 +611,6 @@ void loop() {
   check_pmu_int();
   keyboard_process();
   check_hp_det();
+  kbd_boot_poll();
   delay(10);
 }
