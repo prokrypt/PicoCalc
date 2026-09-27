@@ -74,6 +74,7 @@
 #define CR1_ACK   (1u << 10)
 #define CR1_SWRST (1u << 15)
 #define SR1_ADDR  (1u << 1)
+#define SR1_BTF   (1u << 2)
 #define SR1_STOPF (1u << 4)
 #define SR1_RXNE  (1u << 6)
 #define SR1_TXE   (1u << 7)
@@ -81,6 +82,7 @@
 #define SR1_ARLO  (1u << 9)
 #define SR1_AF    (1u << 10)
 #define SR1_OVR   (1u << 11)
+#define SR2_BUSY  (1u << 1)
 #define SR2_TRA   (1u << 2)
 
 /* FLASH */
@@ -177,6 +179,8 @@ static uint8_t rx_active, rx_overflow;
 static uint8_t tx_buf[STATUS_LEN];
 static uint32_t tx_idx;
 static uint8_t tx_active;
+static uint8_t tx_flush;   /* a byte the master never took is left in DR */
+static uint32_t stall_since;
 
 static void i2c_init(void) {
   RCC_APB1ENR |= APB1_I2C1;
@@ -209,10 +213,23 @@ static void i2c_poll(void) {
   if (sr1 & SR1_AF) {                     /* master NACKed: end of a read */
     I2C_SR1 = ~SR1_AF & 0xFFFFu;
     tx_active = 0;
-    if (!(I2C_SR1 & SR1_TXE)) {            /* a padding byte is stuck in DR: flush it */
-      I2C_CR1 = 0;
-      I2C_CR1 = CR1_PE;
-      I2C_CR1 = CR1_PE | CR1_ACK;
+    /* After a short read (e.g. a 2-byte register read) the next status byte may
+     * already sit in DR and would go out first on the next read. DR can only be
+     * emptied by disabling the peripheral, and PE=0 only takes effect once the
+     * bus is idle (RM0008 I2C_CR1.PE), so do it after the master's STOP. */
+    if (!(I2C_SR1 & SR1_TXE)) tx_flush = 1;
+  }
+
+  if (tx_flush) {
+    uint32_t s1 = I2C_SR1;
+    if (!(s1 & SR1_ADDR)) {
+      uint32_t s2 = I2C_SR2;               /* SR1 (no ADDR) then SR2: see the stall guard below */
+      if (!(s2 & SR2_BUSY)) {
+        I2C_CR1 = 0;                       /* also clears ACK */
+        I2C_CR1 = CR1_PE;
+        I2C_CR1 = CR1_PE | CR1_ACK;
+        tx_flush = 0;
+      }
     }
   }
 
@@ -239,8 +256,27 @@ static void i2c_poll(void) {
     sr1 = I2C_SR1;
   }
 
+  /* Stall guard: if an address match was cleared behind our back (it could land
+   * between the SR1 and SR2 reads of the flush check), the master sits in a read
+   * with SCL stretched and we'd never answer. Between a NACK and the master's
+   * STOP the same flags show for microseconds only, so wait 5 ms before acting. */
+  if (!tx_active && (sr1 & SR1_TXE) && !(sr1 & (SR1_AF | SR1_BTF))) {
+    if (!stall_since) stall_since = now_ms + 1u;
+    else if (now_ms + 1u - stall_since > 5u && (I2C_SR2 & (SR2_TRA | SR2_BUSY)) == (SR2_TRA | SR2_BUSY)) {
+      bl_status(tx_buf);
+      tx_idx = 0;
+      tx_active = 1;
+      stall_since = 0;
+    }
+  } else {
+    stall_since = 0;
+  }
+
   if (tx_active && (sr1 & SR1_TXE)) {
-    I2C_DR = tx_idx < STATUS_LEN ? tx_buf[tx_idx++] : 0xFFu;  /* pad rather than stretch forever */
+    if (tx_idx < STATUS_LEN)
+      I2C_DR = tx_buf[tx_idx++];
+    else if (sr1 & SR1_BTF)
+      I2C_DR = 0xFFu;  /* master wants more than the status: pad rather than stretch forever */
   }
 
   if (sr1 & SR1_STOPF) {
@@ -282,17 +318,20 @@ static void bkp_write(volatile uint16_t *reg, uint16_t v) {
  * from loop() (kbd_boot.ino). A reset stops it again, so it only runs after a
  * trial boot until the next reset or power cycle. */
 static void iwdg_start(void) {
+  /* Start first: that forces the LSI on, and PR/RLR only update (PVU/RVU clear)
+   * while the LSI runs (RM0008 19.3, same order as the ST HAL). */
+  IWDG_KR = 0xCCCCu;
   IWDG_KR = 0x5555u;
   IWDG_PR = 4u;
   IWDG_RLR = 2500u;
-  while (IWDG_SR & 3u) {}
+  for (uint32_t n = 0; (IWDG_SR & 3u) && n < 200000u; n++) {}  /* ~5 LSI cycles; never hang here */
   IWDG_KR = 0xAAAAu;
-  IWDG_KR = 0xCCCCu;
 }
 
 /* Returns a WHY_* reason to stay, or 0 to try the app. */
 static uint8_t boot_flags(int *trial) {
   RCC_APB1ENR |= APB1_PWR | APB1_BKP;
+  (void)RCC_APB1ENR;                        /* let the clock enable land before BKP reads */
   *trial = 0;
   if (BKP_DR1 == BKP_ENTER_MAGIC) {
     bkp_write(&BKP_DR1, 0);                 /* one-shot: the next reset goes to the app */

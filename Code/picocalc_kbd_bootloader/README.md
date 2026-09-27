@@ -3,11 +3,16 @@
 Lets MicroPython on the Pico update the keyboard chip (STM32F103R8, I2C 0x1F)
 without DIP switches or a USB cable, after one install over USB.
 
-**Status: untested on hardware.** The bootloader cross-compiles (4.1 KB with
-clang/lld), and `make hosttest` runs `kbdflash.py` against the real protocol code
-(`bl_core.c`) with a simulated flash and a noisy I2C bus. Not yet exercised: the
-STM32 register code in `bl_main.c`, the Arduino app changes (no STM32 core here),
-and anything on a real PicoCalc.
+**Status: untested on hardware.** What has been checked:
+- The bootloader builds with the STM32 core's arm-none-eabi-gcc 14.2 (2.8 KB) and with clang/lld.
+- The app builds with arduino-cli 1.3.1 and STM32 core 2.10.0 at 0x08002000: 40,744 bytes, ending at
+  0x0800BF28. The vector table is at 0x08002000, and `SystemInit()` sets VTOR to 0x08002000.
+- `mkimage.py combined` output passes the bootloader's own validity check (`bl_app_valid`).
+- `make hosttest` runs `kbdflash.py` against the real protocol code (`bl_core.c`), with a simulated
+  flash, a noisy bus, stale bytes after short reads, and an app that must never be over-read.
+- `bl_main.c` was reviewed against RM0008 for flash, IWDG, BKP and the I2C slave.
+
+Not exercised: anything on a real PicoCalc.
 
 ## Why a bootloader is needed
 
@@ -126,6 +131,24 @@ This costs one 2-byte read when all is well. It promotes `/sd/kbd/pending.bin` t
 `last_good.bin` once a new image is seen running. If the keyboard chip is sitting in
 its bootloader, it restarts the intact app, or reflashes `last_good.bin`.
 
+## Register review notes (RM0008)
+
+- **Flash.**
+  - Unlock with KEYR 0x45670123 then 0xCDEF89AB.
+  - Page erase: PER, AR, STRT, then wait for BSY.
+  - Program: PG, one halfword write, then wait for BSY.
+  - Every operation checks PGERR and WRPRTERR, relocks, and reads back.
+  - Erases and writes are refused below 0x08002000. Option bytes (OPTKEYR) are never touched.
+  - Runs on HSI at 8 MHz, as programming requires, with 0 wait states.
+- **IWDG.** Started with 0xCCCC before writing PR/RLR. That forces the LSI on; otherwise PVU/RVU never clear, and the old order hung forever here (fixed). The wait is also bounded now.
+- **BKP.** DR1 and DR2 are read after the PWR and BKP clocks are enabled, and written only with DBP set.
+- **I2C1.**
+  - Remapped to PB8/PB9, with SWJ off, as the app does.
+  - FREQ=8, OAR1 bit 14 set, ACK written after PE.
+  - ADDR cleared by an SR1 read then an SR2 read. STOPF cleared by an SR1 read then a CR1 write.
+  - AF (the master's NACK) ends a read. Padding goes out only when BTF shows the master wants more.
+  - Clock stretching stays on, so the page-erase stalls (~20 ms) stretch SCL instead of dropping bytes.
+
 ## Recovery ladder
 
 1. Any failure after the erase leaves the chip in the bootloader, with the Pico powered, until a good image is committed. Run `flash()` or `recover()` again, from push.py/WiFi or USB serial, since the keyboard is down.
@@ -136,7 +159,9 @@ its bootloader, it restarts the intact app, or reflashes `last_good.bin`.
 
 - **Reset glitch on PA13.** During the microseconds of reset into the bootloader, PA13 is an input with a pull-up before the bootloader drives it high. If the Pico still browns out, it reboots with the bootloader waiting. The 30 s idle timeout then returns to the app, and nothing is lost.
 - **Flash size.** Assumes 64 KB flash (F103R8). The info page sits at 0x0800FC00.
-- **Build properties unverified.** `build.flash_offset` and `upload.maximum_size` are stm32duino core properties as I understand them. Both `build_app.sh` (via `mkimage.py check`) and `kbdflash.py` refuse an image linked at the wrong address.
+- **Wrong link address.** Checked with core 2.10.0 (see Status). Both `build_app.sh` (via `mkimage.py check`) and `kbdflash.py` still refuse an image linked at the wrong address.
+- **I2C slave edge cases.** The F1 I2C slave is driven by polling. After a short read, one status byte can be left in DR. The bootloader flushes it once the bus is idle, and `kbdflash` retries a status read that comes back shifted. A 5 ms stall guard answers a read whose address event was missed.
+- **Never over-read the app.** The stm32duino Wire slave only has the 2 bytes `requestEvent()` queued, so a longer read can hold SCL low. `kbdflash` therefore identifies the firmware with a 2-byte read of register 0x0E, and only reads the 24-byte status once the bootloader has answered.
 - **Power key not serviced.** The bootloader doesn't handle the AXP2101 power key. The PMU's own hardware long-press power-off still applies.
 - **Late crashes.** The trial window is 500 ms, so an app that crashes later than that isn't caught, and needs DIP 1.
 - **Bus speed.** `kbdflash` uses 50 kHz. The Pico driver currently runs the bus at 12 kHz. 100 kHz should work (the fork dropped the 10 kHz limit) but is unconfirmed.

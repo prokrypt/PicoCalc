@@ -43,6 +43,7 @@ class FakeBus:
         self.noise = noise
         self.rng = random.Random(seed)
         self.stray = 0
+        self.stale = None  # a status byte left in DR by a short read (if not flushed in time)
         if mode == 'bl':
             self.enter_bl(2)
 
@@ -84,11 +85,20 @@ class FakeBus:
         if self._noise():
             raise OSError(110)
         if self.mode == 'app':
-            return bytes([0, 0] + [0xFF] * (n - 2))
+            # the stm32duino slave only has the 2 bytes requestEvent() queued; reading
+            # more stretches SCL indefinitely on the real chip
+            assert n <= 2, 'over-read of the keyboard app (%d bytes)' % n
+            return bytes([0, 0])[:n]
         self._steps()
         buf = ctypes.create_string_buffer(kbdflash.STATUS_LEN)
         lib.bl_status(buf)
-        return (buf.raw + b'\xff' * n)[:n]
+        raw = buf.raw + b'\xff' * n
+        if self.stale is not None:
+            raw = bytes((self.stale,)) + raw
+            self.stale = None
+        if n < kbdflash.STATUS_LEN and self.rng.random() < 0.5:
+            self.stale = raw[n]  # worst case: the bootloader's flush didn't happen before the next read
+        return raw[:n]
 
     def readfrom_mem(self, addr, reg, n):
         if self.mode == 'app':

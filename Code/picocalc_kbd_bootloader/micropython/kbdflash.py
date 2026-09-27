@@ -155,8 +155,23 @@ class Link:
 
     # --- bootloader side ---
 
+    def probe(self):
+        """What answers at 0x1F, using only a 2-byte register read, which is safe for
+        every firmware (reading past what the app offers can stretch SCL forever):
+        'bl' bootloader, 'app+bl' app above the bootloader, 'app' any other keyboard
+        firmware, None nothing answered."""
+        r = self.app_reg(REG_BOOT)  # the bootloader ignores 0x0E and answers with its marker
+        if r is None:
+            return None
+        if r[0] == MARKER:
+            return 'bl'
+        if r[0] == REG_BOOT and r[1] & 1:
+            return 'app+bl'
+        return 'app'
+
     def status(self, tries=3):
-        """Bootloader Status, or None if something else (the app) answered."""
+        """Bootloader Status. Call only once probe() said 'bl'. None if no valid status
+        came back (a byte left over from a short read can shift one read; retry)."""
         for i in range(tries):
             try:
                 raw = self.i2c.readfrom(self.addr, STATUS_LEN)
@@ -167,7 +182,7 @@ class Link:
                 s = Status(raw)
                 if s.app_base == APP_BASE:
                     return s
-            return None
+            sleep_ms(2)
         return None
 
     def command(self, frame, timeout_ms=2000, progress=None):
@@ -249,9 +264,8 @@ class Link:
         t0 = ticks_ms()
         sleep_ms(100)
         while ticks_diff(ticks_ms(), t0) < wait_ms:
-            s = self.status(tries=1)
-            if s is not None:
-                return s
+            if self.probe() == 'bl':
+                return self.status()
             sleep_ms(50)
         return None
 
@@ -313,18 +327,19 @@ def status(i2c=None, freq=DEFAULT_FREQ):
     parked = _park_keyboard()
     try:
         link = Link(i2c or _make_i2c(freq))
-        s = link.status(tries=2)
-        if s is not None:
-            _say('bootloader v%d is running (%s)' % (s.version, WHY.get(s.why, 'reason %d' % s.why)))
+        what = link.probe()
+        if what == 'bl':
+            s = link.status()
+            if s:
+                _say('bootloader v%d is running (%s)' % (s.version, WHY.get(s.why, 'reason %d' % s.why)))
             return s
-        r = link.app_reg(REG_BOOT)
-        if r is None:
+        if what is None:
             _say('nothing answered at 0x1F')
-        elif r[0] == REG_BOOT and r[1] & 1:
+        elif what == 'app+bl':
             _say('keyboard firmware is running above the bootloader: kbdflash.flash() will work')
         else:
             _say('keyboard firmware is running without the bootloader: install it over USB first (README)')
-        return r
+        return what
     finally:
         _unpark_keyboard(parked, 12000)
 
@@ -344,7 +359,12 @@ def flash(path=None, i2c=None, force=False, freq=DEFAULT_FREQ, restore_freq=1200
     entered = False
     try:
         link = Link(i2c or _make_i2c(freq))
-        s = link.status(tries=2)
+        what = link.probe()
+        if what is None:
+            raise KbdFlashError('nothing answered at 0x1F. Nothing was changed.')
+        s = link.status() if what == 'bl' else None
+        if what == 'bl' and s is None:
+            raise KbdFlashError('the bootloader answered but its status did not read back cleanly')
         if s is None:
             bat = link.app_reg(REG_BAT)
             if bat is not None and bat[0] == REG_BAT:
@@ -436,10 +456,10 @@ def autorecover(i2c=None):
     reflash the last good image; if a freshly flashed image is running, promote it."""
     import os
     link = Link(i2c or _make_i2c(12000))
-    r = link.app_reg(0x01)  # app: [0, 0]; bootloader treats 0x01 as INFO and answers its marker
-    if r is None:
+    what = link.probe()
+    if what is None:
         return None
-    if r[0] != MARKER:
+    if what != 'bl':
         try:
             os.stat(PENDING)
         except OSError:
