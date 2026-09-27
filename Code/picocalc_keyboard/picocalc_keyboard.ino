@@ -153,7 +153,8 @@ void receiveEvent(int howMany) {
     case REG_ID_BAT:{
       //Serial1.print("REG_ID_BAT getBatteryPercent:");Serial1.print(current_bat_pcnt);Serial1.println("%");
       write_buffer[0] = reg;
-      write_buffer[1] = (uint8_t)current_bat_pcnt;
+      // percent, plus bit 7 while charging (pmu_status is 0xff with no battery)
+      write_buffer[1] = pmu_status == 0xff ? 0 : pmu_status;
     }break;
     case REG_ID_KEY: {
       write_buffer[0] = fifo_count();
