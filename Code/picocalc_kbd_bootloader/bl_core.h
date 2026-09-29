@@ -52,7 +52,7 @@
 
 /* BKP_DR1 value the app writes before resetting into the bootloader */
 #define BKP_ENTER_MAGIC   0xB007u
-/* BKP_DR2: trial boot of a freshly flashed app. CMD_BOOT arms it, the next
+/* BKP_DR2: trial boot of a freshly flashed app. CMD_BOOT (or the idle reset) arms it, the next
  * reset turns ARM into TRIAL and starts the watchdog, and the app clears it
  * once it has run for a moment (kbd_boot.ino). Still TRIAL at reset = the new
  * app never got going: the bootloader invalidates its record and stays, so no

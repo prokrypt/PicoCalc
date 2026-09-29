@@ -881,8 +881,24 @@ def main():
     FakeI2C(c).writeto(0x1F, bytes((0x8F, 0xB0)))
     ok('app -> bootloader request lands in the bootloader', c.mode == 'bl')
     c.run_ms(31000)
-    ok('idle 30 s in the bootloader: back to the app, no flash writes',
-       c.mode == 'app' and c.programs == 0 and sum(c.erases) == 0, repr(c.boot_log[-2:]))
+    c.app_tick(1000)
+    ok('idle 30 s in the bootloader: back to the app as a confirmed trial, no flash writes',
+       c.mode == 'app' and c.boot_log[-1] == 'app (trial)' and c.bkp[2] == 0 and
+       c.programs == 0 and sum(c.erases) == 0, repr(c.boot_log[-2:]))
+
+    # 9. commit but no BOOT (reboot=False, or the Pico died first): the idle reset must still
+    # start the new image as a trial, so a bad one is caught and retired
+    c = Chip(combined(bl, app_a))
+    attach(c)
+    c.app_bad = True
+    kbdflash.flash(pb, i2c=FakeI2C(c), reboot=False)
+    c.run_ms(36000)
+    ok('committed, no BOOT: idle reset starts it under the watchdog', 'app (trial)' in c.boot_log,
+       repr(c.boot_log[-2:]))
+    ok('... bad image: back in the bootloader, record retired', c.mode == 'bl' and c.boot_log[-1] == 'iwdg reset'
+       and live_record(c.flash) is None, repr(c.boot_log[-2:]))
+    c.power_on(cold=True)
+    ok('... and after a power cycle too', c.mode == 'bl')
 
     real_print('emu_test: %d checks passed' % len(results))
 

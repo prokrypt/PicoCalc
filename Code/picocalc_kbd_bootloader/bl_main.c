@@ -15,7 +15,8 @@
  * While staying: Pico power (PA13) held on, LCD backlight (PA8) full on so the
  * Pico's progress messages are readable, audio amp (PA14) off, LED (PC13)
  * blinks. If we were asked in by the app and nothing talks to us for
- * IDLE_TIMEOUT_MS while a valid app is still present, reset back into it.
+ * IDLE_TIMEOUT_MS while a valid app is still present, reset back into it as
+ * a trial boot (it may be an image committed this session).
  *
  * The ROM bootloader (DIP switch 1 + USB-C, STM32CubeProgrammer) is untouched
  * and stays the recovery path for everything, including this bootloader.
@@ -417,7 +418,11 @@ int main(void) {
     }
 
     if (asked && !busy && now_ms - last_activity_ms > IDLE_TIMEOUT_MS) {
-      if (bl_app_valid()) system_reset();  /* Pico went away; give the keyboard back */
+      if (bl_app_valid()) {                 /* Pico went away; give the keyboard back */
+        /* as a trial: the app may be one committed this session whose BOOT never came */
+        bkp_write(&BKP_DR2, BKP_TRIAL_ARM);
+        system_reset();
+      }
       asked = 0;                            /* no valid app: wait here for good */
     }
 

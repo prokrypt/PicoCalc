@@ -12,7 +12,7 @@ without DIP switches or a USB cable, after one install over USB.
 - `mkimage.py combined` output passes the bootloader's own validity check (`bl_app_valid`).
 - `make hosttest` (28 checks) runs `kbdflash.py` against the real protocol code (`bl_core.c`), with a simulated
   flash, a noisy bus, stale bytes after short reads, and an app that must never be over-read.
-- `make emutest` (28 checks) runs the **built bootloader binary** in an STM32F103 model (unicorn Cortex-M3 plus
+- `make emutest` (31 checks) runs the **built bootloader binary** in an STM32F103 model (unicorn Cortex-M3 plus
   modelled flash controller, BKP, IWDG, SysTick, GPIO and I2C slave), driven by the unmodified `kbdflash.py`.
   See "Emulator results" below.
 - `bl_main.c` was reviewed against RM0008 for flash, IWDG, BKP and the I2C slave.
@@ -56,7 +56,8 @@ While it stays, the bootloader:
 - answers on I2C 0x1F.
 
 If the app asked for the bootloader and nothing talks to it for 30 s while the app
-is still intact, it resets back into the app.
+is still intact, it resets back into the app as a trial boot, so an image committed
+without a BOOT (e.g. `flash(reboot=False)`, or the Pico died first) still gets the watchdog.
 
 The app (`kbd_boot.ino`) feeds the watchdog from `loop()`. After 500 ms of running it
 clears the trial flag. A new image that hangs or faults before then comes back to the
@@ -134,7 +135,7 @@ Typical cost of an update that changes a few functions: 2–5 page erases. Inter
 
 ## Emulator results
 
-`tools/emu_test.py` on the gcc build of the bootloader (3,136 bytes) and the real app (40,760 bytes, 40 pages):
+`tools/emu_test.py` on the gcc build of the bootloader (3,148 bytes) and the real app (40,760 bytes, 40 pages):
 
 | Scenario | Result |
 |---|---|
@@ -150,7 +151,8 @@ Typical cost of an update that changes a few functions: 2–5 page erases. Inter
 | 5 % of I2C transfers fail | update completes, no extra erases |
 | Image linked at 0x08000000, or without the `kbd_boot.ino` marker | refused before anything is sent |
 | Upstream v1.6 keyboard firmware (0x0E = power off) | `status()` says other firmware; `flash()` refuses; no I2C write reaches it |
-| App asks for the bootloader, nothing follows | back to the app after 30 s, no writes |
+| App asks for the bootloader, nothing follows | back to the app after 30 s as a confirmed trial, no writes |
+| Image committed, BOOT never sent, image bad | the idle reset starts it under the watchdog; retired, chip waits (also after a power cycle) |
 
 Power loss is modelled as a half-done operation: an interrupted erase leaves random bits set, an interrupted program
 clears random bits. What the model can't show: real I2C timing and electrical glitches, the brown-out behaviour of PA13
