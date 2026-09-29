@@ -6,7 +6,8 @@
  *
  * Boot decision, taken before any peripheral is touched:
  *   BKP_DR1 == BKP_ENTER_MAGIC  -> clear it, stay (the app asked for this)
- *   BKP_DR2 == BKP_TRIAL        -> the freshly flashed app never confirmed: stay
+ *   BKP_DR2 == BKP_TRIAL        -> the freshly flashed app never confirmed:
+ *                                  invalidate its record, then stay
  *   app committed and valid     -> jump to the app at APP_BASE; if CMD_BOOT
  *                                  armed a trial, start the watchdog first
  *   otherwise                   -> stay (nothing valid to run)
@@ -338,10 +339,7 @@ static uint8_t boot_flags(int *trial) {
     return WHY_ASKED;
   }
   uint16_t t = BKP_DR2;
-  if (t == BKP_TRIAL) {
-    bkp_write(&BKP_DR2, 0);                 /* new app never confirmed */
-    return WHY_TRIAL;
-  }
+  if (t == BKP_TRIAL) return WHY_TRIAL;     /* new app never confirmed; main() clears DR2 */
   if (t == BKP_TRIAL_ARM) {
     bkp_write(&BKP_DR2, BKP_TRIAL);
     *trial = 1;
@@ -378,6 +376,15 @@ int main(void) {
     }
     if (trial) bkp_write(&BKP_DR2, 0);
     why = WHY_NO_APP;
+  }
+  if (why == WHY_TRIAL) {
+    /* Retire the image that failed its trial, or a later reset with DR2 clear (a
+     * power cycle, which is what a user does next) would start it again without
+     * the watchdog; one that hangs in setup() keeps the Pico unpowered, leaving
+     * only DIP 1 + USB. Two halfword programs, no erase; a cut part-way leaves
+     * the magic broken, so the record is dead either way. DR2 is cleared only
+     * once that has worked, so a failure is retried at the next reset. */
+    if (bl_invalidate() == E_NONE) bkp_write(&BKP_DR2, 0);
   }
   int asked = why == WHY_ASKED;
 

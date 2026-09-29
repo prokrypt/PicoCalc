@@ -53,13 +53,15 @@ RAM_END = 0x20005000
 WRITE_MAX = 128
 STATUS_LEN = 24
 
-BL_VERSION = 2
+BL_VERSION = 3
 CMD_INFO, CMD_ERASE_PAGE, CMD_WRITE, CMD_CRC, CMD_COMMIT, CMD_BOOT, CMD_PING = (
     0x01, 0x11, 0x20, 0x30, 0x40, 0x50, 0x51)
 ST_IDLE, ST_BUSY, ST_OK, ST_ERR = 0, 1, 2, 3
 REG_BAT = 0x0B
-REG_BOOT = 0x0E
+REG_BOOT = 0x0F      # not 0x0E: that is power off in upstream keyboard firmware v1.6
 BOOT_CONFIRM = 0xB0
+BOOT_SIG = 0xB0      # high nibble of a REG_BOOT read; nothing is written to 0x1F without it
+APP_MARKER = b'KBDBOOT' + bytes((BL_VERSION,))  # in every image built with kbd_boot.ino
 
 ERRORS = {
     2: 'bad frame length', 3: 'offset or length out of range', 4: 'checksum mismatch (I2C noise?)',
@@ -156,6 +158,13 @@ class Status:
             self.version, self.state, self.seq, self.cmd, self.err, self.value, self.why)
 
 
+def _app_above_bl(r):
+    """A REG_BOOT read from this project's app running above the bootloader: the
+    register echo, the signature nibble and the bootloader flag must all match.
+    Other firmware reads [0, 0] or its own register there."""
+    return r[0] == REG_BOOT and (r[1] & 0xF0) == BOOT_SIG and r[1] & 1
+
+
 class Link:
     def __init__(self, i2c, addr=ADDR):
         self.i2c = i2c
@@ -168,12 +177,12 @@ class Link:
         every firmware (reading past what the app offers can stretch SCL forever):
         'bl' bootloader, 'app+bl' app above the bootloader, 'app' any other keyboard
         firmware, None nothing answered."""
-        r = self.app_reg(REG_BOOT)  # the bootloader ignores 0x0E and answers with its marker
+        r = self.app_reg(REG_BOOT)  # the bootloader ignores 0x0F and answers with its marker
         if r is None:
             return None
         if r[0] == MARKER:
             return 'bl'
-        if r[0] == REG_BOOT and r[1] & 1:
+        if _app_above_bl(r):
             return 'app+bl'
         return 'app'
 
@@ -264,8 +273,8 @@ class Link:
     def enter_bootloader(self, wait_ms=3000):
         """Ask the app to restart into the bootloader; returns the bootloader Status or None."""
         r = self.app_reg(REG_BOOT)
-        if r is None or r[0] != REG_BOOT or not (r[1] & 1):
-            return None  # old firmware, or not linked above the bootloader
+        if r is None or not _app_above_bl(r):
+            return None  # other firmware (never write to it), or not linked above the bootloader
         try:
             self.i2c.writeto(self.addr, bytes((REG_BOOT | 0x80, BOOT_CONFIRM)))
         except OSError:
@@ -345,6 +354,10 @@ def check_image(img):
     sp, pc = struct.unpack('<II', img[:8])
     if not (RAM_START < sp <= RAM_END) or sp & 3:
         raise KbdFlashError('initial stack pointer 0x%08x is not in RAM: not a keyboard app image' % sp)
+    if img.find(APP_MARKER) < 0:
+        raise KbdFlashError('no %r marker: this build lacks kbd_boot.ino (or is for another bootloader '
+                            'version), so it could never confirm its trial boot or be updated over I2C '
+                            'again' % APP_MARKER)
     if not (pc & 1) or not (APP_BASE + 8 <= (pc & ~1) < APP_BASE + len(img)):
         if (pc & ~1) < APP_BASE:
             raise KbdFlashError('reset vector 0x%08x is below 0x%08x: this build is linked for 0x08000000. '
@@ -398,7 +411,8 @@ def status(i2c=None, freq=DEFAULT_FREQ):
         elif what == 'app+bl':
             _say('keyboard firmware is running above the bootloader: kbdflash.flash() will work')
         else:
-            _say('keyboard firmware is running without the bootloader: install it over USB first (README)')
+            _say('keyboard firmware without this bootloader (or not this firmware): install it over USB first '
+                 '(README). Nothing was written to it.')
         return what
     finally:
         _unpark_keyboard(parked, 12000)

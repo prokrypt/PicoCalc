@@ -13,7 +13,7 @@ taking effect when the bus is idle). The master side of the bus is kbdflash.py
 itself, talking through FakeI2C.
 
 The keyboard app is not emulated: when the bootloader jumps to it, a Python stand-in
-takes over (answers registers 0x0B/0x0E, enters the bootloader on request, confirms
+takes over (answers registers 0x0B/0x0F, enters the bootloader on request, confirms
 or fails a trial boot), and "power-cycles the Pico" the way the real app does.
 
 Checks: no flash write on any boot path, never booting a half-written image, power
@@ -73,6 +73,9 @@ class Chip:
         self.cut_at = None               # power loss during this flash op number
         self.boot_log = []
         self.app_bad = False             # stand-in app fails its trial boot
+        self.app_v16 = False             # stand-in is upstream firmware v1.6 (0x0E = power off)
+        self.app_writes = []             # I2C writes the app received
+        self.retires = 0                 # info-page programs on the failed-trial boot path
         self.power_on(cold=True)
 
     # ---- power ----
@@ -82,6 +85,8 @@ class Chip:
             self.clock_base += self.now_ms()
         if cold and not self.bkp_on_vbat:
             self.bkp = {1: 0, 2: 0}
+        # the one boot path allowed to write flash: retiring an image that failed its trial
+        self.retire_ok = self.bkp[2] == 0x7E57
         self.mode = 'bl'
         self.uc = uc = Uc(UC_ARCH_ARM, UC_MODE_THUMB | UC_MODE_MCLASS)
         uc.ctl_set_cpu_model(UC_CPU_ARM_CORTEX_M3)
@@ -245,7 +250,9 @@ class Chip:
         if off < 0x2000:
             raise Violation('bootloader area written at %08x' % address)
         if self.in_boot_path:
-            raise Violation('flash programmed on a boot path (%08x)' % address)
+            if not (self.retire_ok and value == 0 and INFO_ADDR <= address < INFO_ADDR + PAGE):
+                raise Violation('flash programmed on a boot path (%08x)' % address)
+            self.retires += 1
         cur = self.flash[off] | self.flash[off + 1] << 8
         cut = self._flash_op('program', address)
         if cur != 0xFFFF and value != 0:
@@ -600,8 +607,10 @@ class FakeI2C:
 
     def readfrom_mem(self, addr, reg, n):
         if self._check_app():
-            if reg == 0x0E:
-                return bytes((0x0E, 1))
+            if self.chip.app_v16:          # upstream v1.6: 0x0E = REG_ID_OFF, 0x0F unknown
+                return bytes((reg, 1 if reg == 0x0E else 60)) if reg in (0x0E, 0x0B) else bytes(2)
+            if reg == 0x0F:
+                return bytes((0x0F, 0xB1))    # signature 0xB0 | running above the bootloader
             if reg == 0x0B:
                 return bytes((0x0B, 60))
             return bytes(2)
@@ -613,7 +622,12 @@ class FakeI2C:
         return data
 
     def chip_app_write(self, data):
-        if data == bytes((0x8E, 0xB0)):
+        self.chip.app_writes.append(data)
+        if self.chip.app_v16:
+            if data[:1] == b'\x8e':
+                self.chip.boot_log.append('v1.6 app: power off requested')
+            return
+        if data == bytes((0x8F, 0xB0)):
             ch = self.chip
             ch.bkp[1] = 0xB007
             ch.boot_log.append('app asks for bootloader')
@@ -683,6 +697,7 @@ def main():
     for off in (len(b) // 3, len(b) - 100):
         b[off] ^= 0x5A
     app_b = bytes(b)
+    assert kbdflash.APP_MARKER in app_a and kbdflash.APP_MARKER in app_b, 'app built without kbd_boot.ino'
     tmp = tempfile.mkdtemp()
     kbdflash.KBD_DIR = tmp
     kbdflash.LAST_GOOD = os.path.join(tmp, 'last_good.bin')
@@ -733,9 +748,46 @@ def main():
        chip.mode == 'bl' and 'iwdg reset' in chip.boot_log, repr(chip.boot_log[-3:]))
     st = kbdflash.Link(FakeI2C(chip)).status()
     ok('bootloader reports why: trial failed', st is not None and st.why == 3)
+    ok('failed trial: its record is retired on the way in (2 programs, no erase)',
+       live_record(chip.flash) is None and chip.retires == 2, 'retire programs %d' % chip.retires)
+    chip.power_on(cold=True)
+    st = kbdflash.Link(FakeI2C(chip)).status()
+    ok('power cycle after a failed trial: stays in the bootloader, Pico powered',
+       chip.mode == 'bl' and st is not None and st.why == 2 and chip.retires == 2, repr(chip.boot_log[-3:]))
     chip.app_bad = False
     do_flash(chip, pb)
     ok('restore after a failed trial', chip.mode == 'app' and app_is(chip, app_b))
+
+    # 4b. power loss while the failed image is being retired: still never runs again
+    for vbat in (True, False):
+        c = Chip(combined(bl, app_b), bkp_on_vbat=vbat)
+        c.app_bad = True
+        do_flash(c, pa)
+        c.cut_at = c.flash_ops + 1
+        try:
+            c.app_tick(5000)
+            raise AssertionError('retire never cut')
+        except PowerLoss:
+            pass
+        c.cut_at = None
+        rec = live_record(c.flash)
+        c.power_on(cold=True)
+        # a cut program clears some bits of the magic: dead record. If by chance it cleared
+        # none, only a kept backup domain (DR2 still TRIAL) can retire it again.
+        ok('power loss during the retire (BKP %s): stays in the bootloader' % ('kept' if vbat else 'lost'),
+           c.mode == 'bl' or (not vbat and rec is not None), 'record %s after the cut' % ('live' if rec else 'dead'))
+        c.app_bad = False
+        do_flash(c, pb)
+        ok('... then restore works (BKP %s)' % ('kept' if vbat else 'lost'), c.mode == 'app' and app_is(c, app_b))
+
+    # 4c. power lost inside the 500 ms trial window with BKP kept: the unconfirmed image is
+    # retired too; flash() again only re-commits it (no page erases)
+    c = Chip(combined(bl, app_a))
+    do_flash(c, pb)
+    c.power_on(cold=True)
+    ok('power loss during a trial: image retired, bootloader waits', c.mode == 'bl' and live_record(c.flash) is None)
+    e = do_flash(c, pb)
+    ok('... flash() again: 0 erases, runs B', e == 0 and c.mode == 'app' and app_is(c, app_b))
 
     # 5. power loss during an update (B -> A), with and without the backup domain kept.
     # Every erase and every info-page write is a cut point, plus the first and last
@@ -801,10 +853,32 @@ def main():
         pass
     ok('image linked at 0x08000000: refused, chip untouched',
        c.programs == 0 and sum(c.erases) == 0 and c.mode == 'app')
+    i = app_a.find(kbdflash.APP_MARKER)
+    p_nomark = write_img(tmp, 'nomark.bin', app_a[:i] + bytes(8) + app_a[i + 8:])
+    try:
+        do_flash(c, p_nomark)
+        raise AssertionError('image without marker accepted')
+    except kbdflash.KbdFlashError:
+        pass
+    ok('image without the kbd_boot.ino marker: refused, chip untouched',
+       c.programs == 0 and sum(c.erases) == 0 and c.mode == 'app' and not c.app_writes)
+
+    # 7b. upstream v1.6 keyboard firmware, where 0x0E powers the device off: kbdflash
+    # must not write to it at all
+    c = Chip(combined(bl, app_a))
+    c.app_v16 = True
+    ok('v1.6 keyboard: status() says other firmware', kbdflash.status(i2c=FakeI2C(c)) == 'app')
+    try:
+        do_flash(c, pb)
+        raise AssertionError('flash() went ahead on a v1.6 keyboard')
+    except kbdflash.KbdFlashError:
+        pass
+    ok('v1.6 keyboard: flash() refuses, no I2C write reaches it',
+       c.app_writes == [] and c.programs == 0 and sum(c.erases) == 0, repr(c.app_writes))
 
     # 8. the app asks for the bootloader and nobody flashes: back to the app after 30 s, no writes
     c = Chip(combined(bl, app_a))
-    FakeI2C(c).writeto(0x1F, bytes((0x8E, 0xB0)))
+    FakeI2C(c).writeto(0x1F, bytes((0x8F, 0xB0)))
     ok('app -> bootloader request lands in the bootloader', c.mode == 'bl')
     c.run_ms(31000)
     ok('idle 30 s in the bootloader: back to the app, no flash writes',

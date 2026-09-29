@@ -11,7 +11,9 @@
  *   0x0800FC00 - 0x0800FFFF  info page: log of 64 16-byte records
  *
  * Flash wear (the F103 is rated 10k erase cycles per page):
- *   - nothing on any boot path writes flash; boot state lives in BKP registers
+ *   - no normal boot path writes flash; boot state lives in BKP registers. The
+ *     one exception is the reset after a failed trial boot, which programs two
+ *     halfwords to retire that image's record (no erase)
  *   - an update erases only the app pages whose content changes (ERASE_PAGE,
  *     chosen by the host after comparing CRC per page), and skips a page that
  *     is already blank
@@ -27,7 +29,7 @@
 
 #include <stdint.h>
 
-#define BL_VERSION        2u
+#define BL_VERSION        3u   /* 3: app register moved to 0x0F, failed trials retired */
 #define BL_MARKER         0xB1u   /* status byte 0; never a valid app reply */
 
 #define FLASH_START       0x08000000u
@@ -53,14 +55,16 @@
 /* BKP_DR2: trial boot of a freshly flashed app. CMD_BOOT arms it, the next
  * reset turns ARM into TRIAL and starts the watchdog, and the app clears it
  * once it has run for a moment (kbd_boot.ino). Still TRIAL at reset = the new
- * app never got going, so the bootloader stays. */
+ * app never got going: the bootloader invalidates its record and stays, so no
+ * later power cycle can start it again without the watchdog. */
 #define BKP_TRIAL_ARM     0x7E51u
 #define BKP_TRIAL         0x7E57u
 
 /* why the bootloader is running (status byte 20) */
-#define WHY_ASKED   1u   /* the app asked (REG 0x0E)                  */
+#define WHY_ASKED   1u   /* the app asked (REG 0x0F)                  */
 #define WHY_NO_APP  2u   /* nothing committed, or it failed its check */
-#define WHY_TRIAL   3u   /* the last flashed app never confirmed      */
+#define WHY_TRIAL   3u   /* the last flashed app never confirmed; its
+                            record has been invalidated               */
 
 /* commands (first byte of an I2C write) */
 #define CMD_INFO    0x01u  /* -> OK (value = live record len, 0 if none)     */
@@ -102,6 +106,7 @@ void     bl_on_write(const uint8_t *buf, uint32_t n, int overflow);
 void     bl_status(uint8_t out[STATUS_LEN]);
 int      bl_step(void);           /* run one job slice; 1 while a job is active */
 int      bl_app_valid(void);      /* committed info page + vectors + crc */
+uint8_t  bl_invalidate(void);     /* retire the live record: E_NONE or E_FLASH/E_VERIFY */
 uint32_t bl_crc32(uint32_t crc, uint32_t addr, uint32_t n);
 
 extern volatile uint32_t bl_activity;        /* bumped on every accepted command */

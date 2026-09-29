@@ -48,6 +48,7 @@ class FakeBus:
         self.rng = random.Random(seed)
         self.stray = 0
         self.stale = None  # a status byte left in DR by a short read (if not flushed in time)
+        self.app_writes = []  # writes the keyboard app received
         if mode == 'bl':
             self.enter_bl(2)
 
@@ -68,8 +69,9 @@ class FakeBus:
         data = bytes(data)
         if self._noise():
             raise OSError(5)  # lost before the slave saw it
-        if self.mode == 'app':
-            if data == bytes((0x8E, 0xB0)):
+        if self.mode in ('app', 'v16'):
+            self.app_writes.append(data)
+            if self.mode == 'app' and data == bytes((0x80 | kbdflash.REG_BOOT, kbdflash.BOOT_CONFIRM)):
                 self.enter_bl(1)
             return
         if self._noise() and len(data) > 8:  # flip a bit on the wire
@@ -88,7 +90,7 @@ class FakeBus:
     def readfrom(self, addr, n):
         if self._noise():
             raise OSError(110)
-        if self.mode == 'app':
+        if self.mode in ('app', 'v16'):
             # the stm32duino slave only has the 2 bytes requestEvent() queued; reading
             # more stretches SCL indefinitely on the real chip
             assert n <= 2, 'over-read of the keyboard app (%d bytes)' % n
@@ -109,18 +111,24 @@ class FakeBus:
             if self._noise():
                 raise OSError(5)
             if reg == kbdflash.REG_BOOT:
-                return bytes((reg, 1))
+                return bytes((reg, kbdflash.BOOT_SIG | 1))
             if reg == kbdflash.REG_BAT:
                 return bytes((reg, 0x80 | 60))
+            return bytes((0, 0))
+        if self.mode == 'v16':
+            # upstream keyboard firmware v1.6: 0x0E is REG_ID_OFF (a write powers the
+            # device off), unknown registers such as 0x0F read [0, 0]
+            if reg in (0x0E, kbdflash.REG_BAT):
+                return bytes((reg, 1 if reg == 0x0E else 60))
             return bytes((0, 0))
         self.writeto(addr, bytes((reg,)))
         return self.readfrom(addr, n)
 
 
-def make_image(size, linked_at=kbdflash.APP_BASE, seed=7):
+def make_image(size, linked_at=kbdflash.APP_BASE, seed=7, marker=kbdflash.APP_MARKER):
     rng = random.Random(seed)
-    body = bytes(rng.randrange(256) for _ in range(size - 8))
-    return struct.pack('<II', 0x20005000, linked_at + 0x101) + body
+    body = bytes(rng.randrange(256) for _ in range(size - 8 - len(marker)))
+    return struct.pack('<II', 0x20005000, linked_at + 0x101) + body + marker
 
 
 def flash_region(n):
@@ -227,6 +235,27 @@ def main():
         raise AssertionError('bad image accepted')
     except kbdflash.KbdFlashError as e:
         check('wrong link address refused', 'linked for 0x08000000' in str(e) and wear() == (0, 0, 0))
+
+    # 6b. image built without kbd_boot.ino (no marker) is refused before any I2C traffic
+    nomark = write_file(tmp, 'nomark.bin', make_image(4000, marker=b''))
+    bus = FakeBus('app')
+    try:
+        kbdflash.flash(nomark, i2c=bus)
+        raise AssertionError('image without marker accepted')
+    except kbdflash.KbdFlashError as e:
+        check('image without kbd_boot.ino marker refused', 'marker' in str(e) and wear() == (0, 0, 0)
+              and not bus.app_writes)
+
+    # 6c. upstream v1.6 keyboard firmware (0x0E = power off): probe says 'app', flash()
+    # stops before writing anything to it
+    bus = FakeBus('v16')
+    check('v1.6 keyboard: probe says other firmware', kbdflash.Link(bus).probe() == 'app')
+    try:
+        kbdflash.flash(path, i2c=bus)
+        raise AssertionError('flash() went ahead on a v1.6 keyboard')
+    except kbdflash.KbdFlashError as e:
+        check('v1.6 keyboard: flash() refuses, nothing written to it',
+              'no bootloader answered' in str(e) and bus.app_writes == [], repr(bus.app_writes))
 
     # 7. damaged copy on SD (sidecar mismatch) refused before any I2C traffic
     dmg = write_file(tmp, 'dmg.bin', img5, crc=zlib.crc32(img5) ^ 1)

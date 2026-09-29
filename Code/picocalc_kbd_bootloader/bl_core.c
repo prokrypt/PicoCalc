@@ -107,7 +107,7 @@ static int first_blank_slot(void) {
 }
 
 /* Program 0x0000 over the magic: the F1 allows that without an erase. */
-static uint8_t invalidate_live(void) {
+uint8_t bl_invalidate(void) {
   int s;
   while ((s = live_slot()) >= 0) {
     uint32_t a = slot_addr((uint32_t)s);
@@ -286,7 +286,7 @@ int bl_step(void) {
       uint32_t a = APP_BASE + job_off;
       if (job_phase == 0) {
         /* the app is about to change: make sure it can't boot half-written */
-        uint8_t e = invalidate_live();
+        uint8_t e = bl_invalidate();
         if (e) { fail(e); return 0; }
         job_phase = 1;
         return 1;
@@ -325,7 +325,7 @@ int bl_step(void) {
         ok(job_crc);                      /* already live: nothing to write */
         return 0;
       }
-      uint8_t e = invalidate_live();
+      uint8_t e = bl_invalidate();
       if (!e) e = write_record(job_len, job_crc);
       if (e) { fail(e); return 0; }
       clear_writable();                   /* committed: no more writes until the next ERASE_PAGE */

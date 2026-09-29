@@ -22,6 +22,8 @@ INFO_ADDR = FLASH_START + 0xFC00
 APP_MAX = INFO_ADDR - APP_BASE
 INFO_MAGIC = 0x4B424F4B
 RAM_START, RAM_END = 0x20000000, 0x20005000
+BL_VERSION = 3
+APP_MARKER = b'KBDBOOT' + bytes((BL_VERSION,))  # kbd_boot.ino
 
 
 def pad4(b):
@@ -38,6 +40,8 @@ def check_app(app):
         sys.exit('reset vector 0x%08x: linked for 0x08000000. Rebuild with tools/build_app.sh' % pc)
     if not (pc & 1) or (pc & ~1) >= APP_BASE + len(app):
         sys.exit('reset vector 0x%08x outside the image' % pc)
+    if APP_MARKER not in app:
+        sys.exit('no %r marker: built without kbd_boot.ino (or for another bootloader version)' % APP_MARKER)
     print('ok: %d bytes (%d padded), crc32 %08x, sp %08x, reset %08x' % (
         len(app), len(pad4(app)), zlib.crc32(pad4(app)), sp, pc))
 

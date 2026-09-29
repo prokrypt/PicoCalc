@@ -5,6 +5,12 @@
 #define BKP_TRIAL       0x7E57
 #define TRIAL_CONFIRM_MS 500   // loop() has run this long: the new image is good
 
+// Image marker: kbdflash.py and mkimage.py refuse an image without it, since an
+// app built without this file never confirms its trial boot and can't be asked
+// into the bootloader. The last byte is the bootloader protocol version.
+// Read in kbd_boot_flags() so --gc-sections keeps it.
+const char kbd_boot_marker[] = "KBDBOOT\x03";
+
 static volatile uint8_t boot_pending = 0;
 static unsigned long boot_pending_at = 0;
 static uint8_t trial_confirmed = 0;
@@ -29,7 +35,8 @@ void kbd_boot_request(uint8_t value) {
 }
 
 uint8_t kbd_boot_flags(void) {
-  uint8_t f = 0;
+  (void)*(volatile const char *)kbd_boot_marker;  // keeps the marker in the image
+  uint8_t f = KBD_BOOT_SIG;
   if (above_bootloader()) f |= KBD_BOOT_FLAG_BL;
   if (trial_confirmed == 1) f |= KBD_BOOT_FLAG_TRIAL;
   return f;

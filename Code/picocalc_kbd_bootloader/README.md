@@ -4,13 +4,15 @@ Lets MicroPython on the Pico update the keyboard chip (STM32F103R8, I2C 0x1F)
 without DIP switches or a USB cable, after one install over USB.
 
 **Status: untested on hardware.** What has been checked:
-- The bootloader builds with the STM32 core's arm-none-eabi-gcc 14.2 (2.8 KB) and with clang/lld.
-- The app builds with arduino-cli 1.3.1 and STM32 core 2.10.0 at 0x08002000: 40,744 bytes, ending at
-  0x0800BF28. The vector table is at 0x08002000, and `SystemInit()` sets VTOR to 0x08002000.
+- The bootloader builds with the STM32 core's arm-none-eabi-gcc 14.2.1 (xpack 14.2.1-1.1, 3.1 KB) and with clang/lld.
+- Reproducible: that gcc and arduino-cli 1.3.1 + core 2.10.0 rebuild the published bins byte for byte
+  (arduino-cli also needs Arduino's own ctags 5.8; Universal Ctags mangles the .ino prototypes).
+- The app builds with arduino-cli 1.3.1 and STM32 core 2.10.0 at 0x08002000: 40,760 bytes, ending at
+  0x0800BF38. The vector table is at 0x08002000, and `SystemInit()` sets VTOR to 0x08002000.
 - `mkimage.py combined` output passes the bootloader's own validity check (`bl_app_valid`).
-- `make hosttest` (25 checks) runs `kbdflash.py` against the real protocol code (`bl_core.c`), with a simulated
+- `make hosttest` (28 checks) runs `kbdflash.py` against the real protocol code (`bl_core.c`), with a simulated
   flash, a noisy bus, stale bytes after short reads, and an app that must never be over-read.
-- `make emutest` (17 checks) runs the **built bootloader binary** in an STM32F103 model (unicorn Cortex-M3 plus
+- `make emutest` (28 checks) runs the **built bootloader binary** in an STM32F103 model (unicorn Cortex-M3 plus
   modelled flash controller, BKP, IWDG, SysTick, GPIO and I2C slave), driven by the unmodified `kbdflash.py`.
   See "Emulator results" below.
 - `bl_main.c` was reviewed against RM0008 for flash, IWDG, BKP and the I2C slave.
@@ -40,7 +42,8 @@ after that the Pico can flash the keyboard chip itself over the I2C bus it alrea
 At reset, before touching any peripheral, the bootloader:
 
 1. `BKP_DR1 == 0xB007` (the app asked): clear it and stay.
-2. `BKP_DR2 == TRIAL`: the last flashed app never confirmed, so stay.
+2. `BKP_DR2 == TRIAL`: the last flashed app never confirmed. Invalidate its record (two halfword
+   programs, no erase), then clear DR2 and stay. A later power cycle can't start that image again.
 3. The info page is committed, the vectors are plausible, and the crc matches: jump to the app.
    If `CMD_BOOT` armed a trial boot, it starts a ~4 s watchdog first.
 4. Otherwise it stays.
@@ -57,7 +60,8 @@ is still intact, it resets back into the app.
 
 The app (`kbd_boot.ino`) feeds the watchdog from `loop()`. After 500 ms of running it
 clears the trial flag. A new image that hangs or faults before then comes back to the
-bootloader instead of leaving the keyboard (and the Pico's power) dead.
+bootloader instead of leaving the keyboard (and the Pico's power) dead, and stays there until a good
+image is committed.
 
 ## I2C protocol (address 0x1F, Pico is master)
 
@@ -95,17 +99,25 @@ Details:
 - Error codes: 2 length, 3 argument, 4 checksum, 5 page not erased this session, 6 flash controller,
   7 read-back, 8 crc, 9 vectors, 11 overflow, 12 no app.
 
-New app register: **0x0E REG_ID_BOOT**.
-- Read it to get `[0x0E, flags]`: bit 0 means the app is running above the bootloader, and bit 1 means this boot was a trial and has been confirmed.
+New app register: **0x0F REG_ID_BOOT** (bootloader v3; v2 used 0x0E, which is power off in upstream firmware v1.6).
+- Read it to get `[0x0F, 0xB0 | flags]`: the 0xB0 high nibble is a signature, bit 0 means the app is running above the
+  bootloader, and bit 1 means this boot was a trial and has been confirmed.
 - Write 0xB0 to restart into the bootloader.
+- `kbdflash` writes to 0x1F only after a read shows the echo, the signature and bit 0. Other firmware (stock, v1.6)
+  reads `[0, 0]` or its own value there and gets no write at all.
+
+Image marker: `kbd_boot.ino` puts `KBDBOOT\x03` (last byte = protocol version) in the app. `kbdflash` and
+`mkimage.py` refuse an image without it, because such an app never confirms its trial and can't be asked into
+the bootloader.
 
 ## Flash wear
 
 The F103 is rated for 10,000 erase cycles per page (RM0008 / datasheet), so writes are kept to what an update needs:
 
 - **Nothing writes flash except an explicit update** (`kbdflash.flash()` / `recover()`, or `autorecover(allow_flash=True)`,
-  which tries once and then needs a person). Checked three ways:
-  - the bootloader's boot paths only touch BKP registers (the emulator fails the run on any flash write before a command);
+  which tries once and then needs a person), and the retire after a failed trial (2 halfword programs, no erase). Checked three ways:
+  - the bootloader's boot paths only touch BKP registers, except that retire (the emulator fails the run on any other flash
+    write before a command);
   - the app binary contains no flash unlock keys or FLASH_KEYR/CR accesses, and uses no EEPROM emulation;
   - `kbdflash` writes only inside `flash()`.
 - Boot state (enter request, trial arm/in-progress) lives in BKP_DR1/DR2, never in flash.
@@ -115,24 +127,29 @@ The F103 is rated for 10,000 erase cycles per page (RM0008 / datasheet), so writ
   0x0000 over its magic (allowed on the F1 without an erase). The page is erased once every 64 updates.
 - The bootloader and the ROM/option bytes are never erased: writes below 0x08002000 are refused in `bl_main.c`,
   and OPTKEYR is never written.
-- The image is checked before the first erase: `.crc32` sidecar, two reads of the file agree, link address, stack pointer, size.
+- The image is checked before the first erase: `.crc32` sidecar, two reads of the file agree, link address, stack pointer, size,
+  `kbd_boot.ino` marker.
 
 Typical cost of an update that changes a few functions: 2–5 page erases. Interrupting one and running it again costs at most one more erase of the page that was in progress.
 
 ## Emulator results
 
-`tools/emu_test.py` on the gcc build of the bootloader (3,136 bytes) and the real app (40,744 bytes, 40 pages):
+`tools/emu_test.py` on the gcc build of the bootloader (3,136 bytes) and the real app (40,760 bytes, 40 pages):
 
 | Scenario | Result |
 |---|---|
 | 51 cold boots with a committed app | jumps to the app every time; 0 flash writes; PA13 (Pico power) never driven low |
 | Update A→B (2 pages changed) | 2 erases; trial boot under the ~4 s watchdog, confirmed after 500 ms |
 | Same image again | 0 erases, 0 programs |
-| New app that hangs in its trial | watchdog reset, bootloader reports "trial failed", restore works |
+| New app that hangs in its trial | watchdog reset, its record retired (2 programs), bootloader reports "trial failed", restore works |
+| Power cycle after that failed trial | stays in the bootloader with the Pico powered (v2 ran the bad image without the watchdog) |
+| Power loss during the retire, BKP kept or lost | stays in the bootloader; restore works |
+| Power loss inside the 500 ms trial (BKP kept) | image retired; `flash()` again re-commits it with 0 erases |
 | Power loss at every erase, every info-page write, first/last halfword of each page and every 16th halfword, with and without BKP surviving | never boots a mixed image; running `flash()` again always recovers; worst page wear across cut + retry: 2 erases |
 | Same, with the info-page log full (the commit erases the info page) | same |
 | 5 % of I2C transfers fail | update completes, no extra erases |
-| Image linked at 0x08000000 | refused before anything is sent |
+| Image linked at 0x08000000, or without the `kbd_boot.ino` marker | refused before anything is sent |
+| Upstream v1.6 keyboard firmware (0x0E = power off) | `status()` says other firmware; `flash()` refuses; no I2C write reaches it |
 | App asks for the bootloader, nothing follows | back to the app after 30 s, no writes |
 
 Power loss is modelled as a half-done operation: an interrupted erase leaves random bits set, an interrupted program
@@ -223,7 +240,7 @@ it reflashes `last_good.bin` once; a marker file stops it from trying again on e
 ## Recovery ladder
 
 1. Any failure after the erase leaves the chip in the bootloader, with the Pico powered, until a good image is committed. Run `flash()` or `recover()` again, from push.py/WiFi or USB serial, since the keyboard is down.
-2. A new image that dies within 500 ms is caught by the trial watchdog; the chip waits in its bootloader and `recover()` restores `last_good.bin` (or `autorecover(allow_flash=True)`, once).
+2. A new image that dies within 500 ms is caught by the trial watchdog; its record is retired, so the chip waits in its bootloader (across power cycles too) and `recover()` restores `last_good.bin` (or `autorecover(allow_flash=True)`, once).
 3. Last resort, always available: DIP 1 + USB-C + STM32CubeProgrammer. The ROM bootloader is untouched, and this also re-installs the bootloader itself.
 
 ## Known risks (check on hardware first)
@@ -232,7 +249,9 @@ it reflashes `last_good.bin` once; a marker file stops it from trying again on e
 - **Flash size.** Assumes 64 KB flash (F103R8). The info page sits at 0x0800FC00.
 - **Wrong link address.** Checked with core 2.10.0 (see Status). Both `build_app.sh` (via `mkimage.py check`) and `kbdflash.py` still refuse an image linked at the wrong address.
 - **I2C slave edge cases.** The F1 I2C slave is driven by polling. After a short read, one status byte can be left in DR. The bootloader flushes it once the bus is idle, and `kbdflash` retries a status read that comes back shifted. A 5 ms stall guard answers a read whose address event was missed.
-- **Never over-read the app.** The stm32duino Wire slave only has the 2 bytes `requestEvent()` queued, so a longer read can hold SCL low. `kbdflash` therefore identifies the firmware with a 2-byte read of register 0x0E, and only reads the 24-byte status once the bootloader has answered.
+- **Never over-read the app.** The stm32duino Wire slave only has the 2 bytes `requestEvent()` queued, so a longer read can hold SCL low. `kbdflash` therefore identifies the firmware with a 2-byte read of register 0x0F, and only reads the 24-byte status once the bootloader has answered.
 - **Power key not serviced.** The bootloader doesn't handle the AXP2101 power key. The PMU's own hardware long-press power-off still applies.
 - **Late crashes.** The trial window is 500 ms, so an app that crashes later than that isn't caught, and needs DIP 1.
+- **Power loss inside the trial window.** If BKP survives (VBAT), the unconfirmed image is retired: run `flash()` again
+  (0 erases). If BKP is lost, the image boots normally, without the watchdog.
 - **Bus speed.** `kbdflash` uses 50 kHz. The Pico driver currently runs the bus at 12 kHz. 100 kHz should work (the fork dropped the 10 kHz limit) but is unconfirmed.
