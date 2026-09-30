@@ -10,7 +10,7 @@ without DIP switches or a USB cable, after one install over USB.
 - The app builds with arduino-cli 1.3.1 and STM32 core 2.10.0 at 0x08002000: 40,760 bytes, ending at
   0x0800BF38. The vector table is at 0x08002000, and `SystemInit()` sets VTOR to 0x08002000.
 - `mkimage.py combined` output passes the bootloader's own validity check (`bl_app_valid`).
-- `make hosttest` (28 checks) runs `kbdflash.py` against the real protocol code (`bl_core.c`), with a simulated
+- `make hosttest` (27 checks) runs `kbdflash.py` against the real protocol code (`bl_core.c`), with a simulated
   flash, a noisy bus, stale bytes after short reads, and an app that must never be over-read.
 - `make emutest` (31 checks) runs the **built bootloader binary** in an STM32F103 model (unicorn Cortex-M3 plus
   modelled flash controller, BKP, IWDG, SysTick, GPIO and I2C slave), driven by the unmodified `kbdflash.py`.

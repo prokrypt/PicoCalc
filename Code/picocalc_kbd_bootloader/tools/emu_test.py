@@ -173,6 +173,8 @@ class Chip:
                     return cond()
                 if self.now_ms() > deadline:
                     return False
+                # small counts, not emu_stop() from MMIO callbacks: unicorn would re-run
+                # the start of the translation block
                 self.run(64)
             return True
         finally:
@@ -184,12 +186,6 @@ class Chip:
             self.run(min(INSTR_PER_MS * 5, max(64, int((end - self.now_ms()) * INSTR_PER_MS))))
         if self.mode == 'app':
             self.app_tick(ms)
-
-    def _poke_waiter(self):
-        # No emu_stop() from MMIO callbacks: unicorn then reports the PC of the start
-        # of the translation block and re-runs its first instructions. run_until()
-        # polls in small instruction counts instead, which stop on exact boundaries.
-        pass
 
     def system_reset(self):
         self.boot_log.append('reset')
@@ -233,9 +229,7 @@ class Chip:
     def _flash_op(self, kind, addr):
         self.flash_ops += 1
         self.op_log.append((kind, addr))
-        if self.cut_at is not None and self.flash_ops == self.cut_at:
-            return True
-        return False
+        return self.flash_ops == self.cut_at
 
     def _flash_write(self, uc, access, address, size, value, _):
         if not (self.flash_cr & 1) or self.flash_locked:
@@ -452,14 +446,12 @@ class I2CSlave:
         if off == 0x18:
             if self.sr1_read and self.addr:
                 self.addr = False
-                self.chip._poke_waiter()
             self.sr1_read = False
             return self.tra << 2 | self.busy << 1
         if off == 0x10:
             v = self.dr_rx
             self.rxne = False
             self.btf = False
-            self.chip._poke_waiter()
             return v
         return {0x00: self.cr1, 0x04: self.cr2, 0x08: self.oar1}.get(off, 0)
 
@@ -480,24 +472,20 @@ class I2CSlave:
             self.cr1 = v
             if not self.pe:
                 self.cr1 &= ~(1 << 10)            # ACK can't be set while PE=0
-            self.chip._poke_waiter()
         elif off == 0x04:
             self.cr2 = v
         elif off == 0x08:
             self.oar1 = v
         elif off == 0x10:
-            if self.tra or True:
-                self.dr_tx = v & 0xFF
-                self.txe = False
-                self.btf = False
-                self.chip._poke_waiter()
+            self.dr_tx = v & 0xFF
+            self.txe = False
+            self.btf = False
         elif off == 0x14:
             if not (v & (1 << 10)):
                 self.af = False
 
     def _disable(self):
-        self.cr1 &= ~1
-        self.cr1 &= ~(1 << 10)
+        self.cr1 &= ~(1 | 1 << 10)
         self.addr = self.rxne = self.txe = self.btf = self.stopf = self.af = self.tra = False
         self.dr_tx = None
 
@@ -550,7 +538,6 @@ class FakeI2C:
             self._wait(lambda: not s.rxne)   # DR full + next byte in: BTF, SCL stretched
             s.dr_rx = b
             s.rxne = True
-            self.chip._poke_waiter()
             self.chip.run(120)            # ~one byte time at 8 MHz vs 50 kHz, scaled down
             if not s.ack:
                 raise OSError(5)
@@ -570,17 +557,12 @@ class FakeI2C:
         s.af = True                       # master NACKs the last byte
         return bytes(out)
 
-    def _check_app(self):
-        if self.chip.mode == 'app':
-            return True
-        return False
-
     def writeto(self, addr, data, stop=True):
         assert addr == 0x1F
         data = bytes(data)
         if self.noise and self.rng.random() < self.noise:
             raise OSError(5)
-        if self._check_app():
+        if self.chip.mode == 'app':
             return self.chip_app_write(data)
         self._address(False)
         self._send(data)
@@ -595,7 +577,7 @@ class FakeI2C:
         assert addr == 0x1F
         if self.noise and self.rng.random() < self.noise:
             raise OSError(110)
-        if self._check_app():
+        if self.chip.mode == 'app':
             if n > 2:
                 raise Violation('read %d bytes from the keyboard app: over-read would hold SCL' % n)
             return bytes(n)
@@ -606,7 +588,7 @@ class FakeI2C:
         return data
 
     def readfrom_mem(self, addr, reg, n):
-        if self._check_app():
+        if self.chip.mode == 'app':
             if self.chip.app_v16:          # upstream v1.6: 0x0E = REG_ID_OFF, 0x0F unknown
                 return bytes((reg, 1 if reg == 0x0E else 60)) if reg in (0x0E, 0x0B) else bytes(2)
             if reg == 0x0F:
@@ -703,8 +685,6 @@ def main():
     kbdflash.LAST_GOOD = os.path.join(tmp, 'last_good.bin')
     kbdflash.PENDING = os.path.join(tmp, 'pending.bin')
     kbdflash._say = lambda m: None
-    import builtins
-    real_print = builtins.print
     kbdflash.print = lambda *a, **k: None
     pa, pb = write_img(tmp, 'a.bin', app_a), write_img(tmp, 'b.bin', app_b)
     results = []
@@ -713,7 +693,7 @@ def main():
         if not cond:
             raise AssertionError('%s %s' % (name, detail))
         results.append((name, detail))
-        real_print('  ok  %-58s %s' % (name, detail), flush=True)
+        print('  ok  %-58s %s' % (name, detail), flush=True)
 
     # 1. cold boot with a committed app: jumps, writes nothing, no trial watchdog
     chip = Chip(combined(bl, app_a))
@@ -799,7 +779,7 @@ def main():
         cuts = set()
         for i, (kind, addr) in enumerate(log, 1):
             first_last = i == 1 or i == len(log) or log[i - 2][1] // PAGE != addr // PAGE \
-                or i == len(log) or log[i][1] // PAGE != addr // PAGE
+                or log[i][1] // PAGE != addr // PAGE
             if kind == 'erase' or addr >= INFO_ADDR or first_last or i % (97 if quick else 16) == 0:
                 cuts.add(i)
         if quick:
@@ -900,7 +880,7 @@ def main():
     c.power_on(cold=True)
     ok('... and after a power cycle too', c.mode == 'bl')
 
-    real_print('emu_test: %d checks passed' % len(results))
+    print('emu_test: %d checks passed' % len(results))
 
 
 if __name__ == '__main__':

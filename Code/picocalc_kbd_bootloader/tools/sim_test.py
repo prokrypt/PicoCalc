@@ -24,8 +24,6 @@ import kbdflash  # noqa: E402
 kbdflash.sleep_ms = lambda ms: None
 lib = ctypes.CDLL(sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, '..', 'build', 'libblcore.so'))
 lib.host_flash.restype = ctypes.POINTER(ctypes.c_uint8)
-lib.bl_crc32.restype = ctypes.c_uint32
-lib.bl_crc32.argtypes = [ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32]
 lib.bl_on_write.argtypes = [ctypes.c_char_p, ctypes.c_uint32, ctypes.c_int]
 boot_reason = ctypes.c_uint8.in_dll(lib, 'bl_boot_reason')
 reset_req = ctypes.c_uint8.in_dll(lib, 'bl_reset_requested')
@@ -343,10 +341,6 @@ def main():
     w = wear()
     check('70 updates: info page erased once', w[1] == 1 and lib.bl_app_valid() == 1,
           'app erases %d (2 pages x 70), info erases %d' % w[:2])
-
-    # 14. crc32 fallback matches zlib
-    kbdflash._crc32 = None
-    check('crc32 fallback', kbdflash.crc32(img) == zlib.crc32(img))
 
     kbdflash._say = say
     for name, detail in RESULTS:

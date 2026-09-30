@@ -37,10 +37,7 @@ except ImportError:  # CPython, for tools/sim_test.py
     def ticks_diff(a, b):
         return a - b
 
-try:
-    from binascii import crc32 as _crc32
-except ImportError:
-    _crc32 = None
+from binascii import crc32
 
 # Must match bl_core.h
 ADDR = 0x1F
@@ -54,9 +51,8 @@ WRITE_MAX = 128
 STATUS_LEN = 24
 
 BL_VERSION = 3
-CMD_INFO, CMD_ERASE_PAGE, CMD_WRITE, CMD_CRC, CMD_COMMIT, CMD_BOOT, CMD_PING = (
-    0x01, 0x11, 0x20, 0x30, 0x40, 0x50, 0x51)
-ST_IDLE, ST_BUSY, ST_OK, ST_ERR = 0, 1, 2, 3
+CMD_ERASE_PAGE, CMD_WRITE, CMD_CRC, CMD_COMMIT, CMD_BOOT = 0x11, 0x20, 0x30, 0x40, 0x50
+ST_BUSY, ST_OK = 1, 2
 REG_BAT = 0x0B
 REG_BOOT = 0x0F      # not 0x0E: that is power off in upstream keyboard firmware v1.6
 BOOT_CONFIRM = 0xB0
@@ -88,31 +84,10 @@ def _say(msg):
     print('[kbd] ' + msg)
 
 
-def crc32(data, crc=0):
-    if _crc32:
-        return _crc32(data, crc) & 0xFFFFFFFF
-    c = ~crc & 0xFFFFFFFF
-    for b in data:
-        c ^= b
-        for _ in range(8):
-            c = (c >> 1) ^ (0xEDB88320 & -(c & 1))
-    return ~c & 0xFFFFFFFF
-
-
-def _sum16(b):
-    s = 0
-    for x in b:
-        s += x
-    return s & 0xFFFF
-
-
 def _make_i2c(freq):
     from machine import I2C, Pin
-    try:
-        # timeout covers clock stretching while the bootloader erases a page (~20 ms)
-        return I2C(1, scl=Pin(7), sda=Pin(6), freq=freq, timeout=200000)
-    except TypeError:
-        return I2C(1, scl=Pin(7), sda=Pin(6), freq=freq)
+    # timeout covers clock stretching while the bootloader erases a page (~20 ms)
+    return I2C(1, scl=Pin(7), sda=Pin(6), freq=freq, timeout=200000)
 
 
 class _Parked:
@@ -248,7 +223,7 @@ class Link:
 
     def write(self, offset, data):
         frame = struct.pack('<BIB', CMD_WRITE, offset, len(data)) + bytes(data)
-        frame += struct.pack('<H', _sum16(frame))
+        frame += struct.pack('<H', sum(frame) & 0xFFFF)
         return self.command(frame, timeout_ms=1000)
 
     def commit(self, length, crc, progress=None):
@@ -310,9 +285,7 @@ def load_image(path, expect_crc=None):
                             % (path, got, expect_crc))
     if crc32(_read(path)) != got:
         raise KbdFlashError('%s reads back differently each time: SD card problem' % path)
-    img = raw
-    if len(img) % 4:
-        img += b'\xff' * (4 - len(img) % 4)
+    img = raw + b'\xff' * (-len(raw) % 4)
     check_image(img)
     return img
 
